@@ -175,8 +175,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         });
     };
 
-
-
+//Mobile Orientation
     function handleOrientation() {
         let el = document.querySelector(".turnDeviceNotification");
         let elW = document.querySelector(".turnDeviceNotification.notification-margin-top");
@@ -284,8 +283,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         '640': 800, // 800 Kbps
         '720': 2000, // 2000 Kbps
         '1080': 6000, // 4000 Kbps
-        '1440': 8000, // 6000 Kbps
-        '2160': 10000  // 8000 Kbps
+        '1440': 8000, // 8000 Kbps
+        '2160': 10000  // 10000 Kbps
     };
     /// Setting the bitrate to the resolution based on resoltuion
 
@@ -615,7 +614,6 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             if (cleanup) cleanup();
         }
     }
-
 
     //   End Screen Share
     document.addEventListener("DOMContentLoaded", () => {
@@ -989,7 +987,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
     // Ensure the checkbox is properly referenced and initialized
     // Ensure then it can only be applied to VP8/h264 with a minimum 5000 Kbps.
-    //8/05/2025 only woring on h264 and vp8
+    //only working on h264 and vp8 at this point
     const simulcastCheckbox = document.getElementById('simulcastCheckbox');
 
     if (!simulcastCheckbox) {
