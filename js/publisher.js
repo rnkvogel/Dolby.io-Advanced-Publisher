@@ -66,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-//COMBO for screen share
+//COMBO for screen share WEBINAR GAME CAPTURE
 
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -503,48 +503,47 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 await camVid.play().catch(() => { });
 
 
-                // prepare canvas
+
+
+                // “composite” branch, after you’ve got screenStream & cameraStream …
+
+                // Setup canvas at 16:9 using the screen’s width
                 const canvas = document.getElementById('compositeCanvas');
                 const ctx = canvas.getContext('2d');
                 const s = screenStream.getVideoTracks()[0].getSettings();
-                canvas.width = s.width || 640;
-                canvas.height = s.height || 360;
+                canvas.width = s.width || 1280;                  // e.g. 1280
+                canvas.height = Math.floor(canvas.width * 9 / 16); // enforce 16:9
 
-                // overlay size
+                // Compute camera overlay size from its natural aspect
+                const camSets = cameraStream.getVideoTracks()[0].getSettings();
+                const camAR = (camSets.width && camSets.height)
+                    ? camSets.width / camSets.height
+                    : 4 / 3;                           // fallback 4∶3
                 const camW = Math.floor(canvas.width * 0.23);
-                const camH = Math.floor(camW * 9 / 16);
+                const camH = Math.floor(camW / camAR);
 
-                // starting bottom-right
+                // starting at bottom-right
                 let overlayX = canvas.width - camW - 22;
                 let overlayY = canvas.height - camH - 22;
 
                 // dragging state
-                let dragging = false;
-                let offsetX = 0;
-                let offsetY = 0;
+                let dragging = false, offsetX = 0, offsetY = 0;
 
-                // mousemove handler on window
-                function onMouseMove(e) {
-                    if (!dragging) return;
-                    const rect = canvas.getBoundingClientRect();
-                    const mx = e.clientX - rect.left;
-                    const my = e.clientY - rect.top;
-                    overlayX = Math.max(0, Math.min(canvas.width - camW, mx - offsetX));
-                    overlayY = Math.max(0, Math.min(canvas.height - camH, my - offsetY));
+                // Map mouse on video → canvas coords
+                const videoWin = document.getElementById('vidWin');
+                function mapToCanvasCoord(clientX, clientY) {
+                    const rect = videoWin.getBoundingClientRect();
+                    const xScale = canvas.width / rect.width;
+                    const yScale = canvas.height / rect.height;
+                    const x = (clientX - rect.left) * xScale;
+                    const y = (clientY - rect.top) * yScale;
+                    return { x, y };
                 }
 
-                // mouseup handler on window
-                function onMouseUp() {
-                    dragging = false;
-                    window.removeEventListener('mousemove', onMouseMove);
-                    window.removeEventListener('mouseup', onMouseUp);
-                }
-
-                // mousedown on canvas starts drag if inside overlay
-                canvas.addEventListener('mousedown', e => {
-                    const rect = canvas.getBoundingClientRect();
-                    const mx = e.clientX - rect.left;
-                    const my = e.clientY - rect.top;
+                // Drag handlers on the video element
+                videoWin.style.cursor = 'move';
+                videoWin.addEventListener('mousedown', e => {
+                    const { x: mx, y: my } = mapToCanvasCoord(e.clientX, e.clientY);
                     if (mx >= overlayX && mx <= overlayX + camW &&
                         my >= overlayY && my <= overlayY + camH) {
                         dragging = true;
@@ -555,19 +554,32 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     }
                 });
 
-                // draw loop (no change)
-                function draw() {
+                function onMouseMove(e) {
+                    if (!dragging) return;
+                    const { x: mx, y: my } = mapToCanvasCoord(e.clientX, e.clientY);
+                    overlayX = Math.max(0, Math.min(canvas.width - camW, mx - offsetX));
+                    overlayY = Math.max(0, Math.min(canvas.height - camH, my - offsetY));
+                }
+
+                function onMouseUp() {
+                    dragging = false;
+                    window.removeEventListener('mousemove', onMouseMove);
+                    window.removeEventListener('mouseup', onMouseUp);
+                }
+
+                // Draw loop
+                function drawComposite() {
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    // full-screen screen‐share
                     ctx.drawImage(screenVid, 0, 0, canvas.width, canvas.height);
-                    ctx.save();
+                    // camera overlay at new position
                     ctx.drawImage(camVid, overlayX, overlayY, camW, camH);
                     ctx.lineWidth = 3;
                     ctx.strokeStyle = '#fff';
                     ctx.strokeRect(overlayX, overlayY, camW, camH);
-                    ctx.restore();
-                    compositeAnimation = requestAnimationFrame(draw);
+                    compositeAnimation = requestAnimationFrame(drawComposite);
                 }
-                draw();
+                drawComposite();
 
                 // capture canvas video
                 canvasStream = canvas.captureStream(30);
