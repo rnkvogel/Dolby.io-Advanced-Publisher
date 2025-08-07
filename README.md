@@ -28,7 +28,7 @@ HTTPS context (secure origin) is required for media capture APIs.
 
 <img width="1445" height="932" alt="Screenshot 2025-08-07 at 11 51 35 AM" src="https://github.com/user-attachments/assets/ee1b388a-79d2-4429-8eac-b14e27d846fb" />
 
-#Updates coming will add overlay and live debugging features.
+# Updates coming will add overlay and live debugging features.
 
 
 
