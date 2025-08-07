@@ -24,7 +24,7 @@ Dolby.io OptiView Publisher with Share and Camera. Webinar or Gaming mode. Live 
 
 <img width="1449" height="931" alt="Screenshot 2025-08-07 at 11 47 38 AM" src="https://github.com/user-attachments/assets/e200ba5e-5644-4056-8cd7-47a1c6c603e1" />
 
-# Move camaera position anytime for your presentation or game stream.
+# Move camera position anytime for your presentation or game stream.
 
 <img width="1439" height="942" alt="Screenshot 2025-08-07 at 11 49 18 AM" src="https://github.com/user-attachments/assets/a47a93c3-9ba3-45a4-afff-b98114068b59" />
 
