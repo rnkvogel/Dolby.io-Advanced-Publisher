@@ -1,21 +1,22 @@
 # Dolby.io-Advanced-Publisher
 Dolby.io OptiView Publisher with Share and Camera. Webinar or Gaming mode. Live tracks update.
 
+# Prerequisites
+* Before using this Millicast Publisher, ensure you have the following in place:
+* Account & Stream Setup
+* A valid Millicast Account ID and Stream Name.
+* A Publishing Token for your stream (secure token if the stream is protected).
+* Browser Requirements
+* Modern Chromium-based browser (Chrome, Edge) or Firefox, version 89+.
+* Enable getUserMedia and getDisplayMedia permissions for camera, microphone, and screen sharing.
+* HTTPS context (secure origin) is required for media capture APIs.
+
 [DEMO](https://rnkvogel.github.io/Dolby.io-Advanced-Publisher/) 
 
-Make sure the site is allowed for access to camera and mic with Browser.
-Enter your Dolby.io streamId which is your streamAccountId/streamName
-Enter your Dolby.io publishing token and click Apply
-
-# Prerequisites
-Before using this Millicast Publisher, ensure you have the following in place:
-Account & Stream Setup
-A valid Millicast Account ID and Stream Name.
-A Publishing Token for your stream (secure token if the stream is protected).
-Browser Requirements
-Modern Chromium-based browser (Chrome, Edge) or Firefox, version 89+.
-Enable getUserMedia and getDisplayMedia permissions for camera, microphone, and screen sharing.
-HTTPS context (secure origin) is required for media capture APIs.
+1. Enter your Dolby.io streamId which is your streamAccountId/streamName
+2. Enter your Dolby.io publishing token and click Apply
+3. Select the COG in the upper right to select camera, mic and desired media settings.
+4. Only codec will not be able to be updated when live. 
 
 # Features
 
