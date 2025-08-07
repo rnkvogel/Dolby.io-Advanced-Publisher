@@ -738,8 +738,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             console.log("✅ Video track replacement done.");
 
         } catch (err) {
-            //console.error("🛑 Broadcast Stopped:");
-            console.error("❌ Broadcast failed to start:", err);//Debug
+            console.error("🛑 Broadcast Stopped:");
+            //console.error("❌ Broadcast failed to start:", err);//Debug
             isBroadcasting = false;
             // fire your UI stop logic just in case
             broadcastHandler({ name: 'publishStop', data: {} });
