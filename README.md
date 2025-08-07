@@ -32,7 +32,12 @@ Dolby.io OptiView Publisher with Share and Camera. Webinar or Gaming mode. Live 
 
 <img width="1445" height="932" alt="Screenshot 2025-08-07 at 11 51 35 AM" src="https://github.com/user-attachments/assets/ee1b388a-79d2-4429-8eac-b14e27d846fb" />
 
+# SourceId can be used to and can be used for additional presenters with MultiView.
+<img width="1042" height="619" alt="Screenshot 2025-08-07 at 12 43 17 PM" src="https://github.com/user-attachments/assets/2d6ea806-b898-49e0-95dd-58d7e798265e" />
+
+
 # Simulcast can only be enable if the bitrate is set high.
+
 # Auto bitrate to resoltuion set.
 
 * Updates coming will add overlay and live debugging features.
