@@ -1,5 +1,5 @@
 # Dolby.io-Advanced-Publisher
-Dolby.io OptiView Publisher with Share and Camera. Webinar or Gaming mode. Live tracks update.
+Dolby.io OptiView Publisher with Share and Camera. Webinar or Gaming mode. Live tracks update live.
 
 # Prerequisites
 * Before using this Millicast Publisher, ensure you have the following in place:
@@ -20,8 +20,7 @@ Dolby.io OptiView Publisher with Share and Camera. Webinar or Gaming mode. Live 
 
 # Features
 
-# Screen Share
-# Screen Share with Camera or Webinar mode
+# Screen Share with Camera or Webinar mode and Screen Share
 
 <img width="1449" height="931" alt="Screenshot 2025-08-07 at 11 47 38 AM" src="https://github.com/user-attachments/assets/e200ba5e-5644-4056-8cd7-47a1c6c603e1" />
 
