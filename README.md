@@ -38,7 +38,7 @@ Dolby.io OptiView Publisher with Share and Camera. Presentation or Gaming mode. 
 
 # Simulcast can only be enable if the bitrate is set high.
 
-# Auto bitrate to resoltuion set.
+# Auto bitrate to resolution set.
 
 * Updates coming will add overlay and live debugging features.
 
