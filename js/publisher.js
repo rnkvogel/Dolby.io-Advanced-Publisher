@@ -456,6 +456,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         }
     }
 
+    
+
     //  wire up buttons once DOM is ready 
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('screenShareOnly')
@@ -463,6 +465,18 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         document.getElementById('screenCameraComposite')
             .addEventListener('click', () => startScreenShare('composite'));
     });
+    // Need to stop screen share properly to go back to default camera
+     let screenCleanup = null;
+
+    async function stopScreenShare() {
+        if (screenCleanup) {
+            await screenCleanup();
+            screenCleanup = null;
+            hideBanner();       // if you show a chrome banner or UI flag
+            videoWin.style.cursor = '';  // reset any custom cursor
+            console.log('✅ Screen share stopped, reverted to camera.');
+        }
+    }
 
     // full startScreenShare implementation
     async function startScreenShare(mode) {
@@ -586,16 +600,15 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 videoTracks = canvasStream.getVideoTracks();
 
                 // cleanup/composite stop handler
-                cleanup = async () => {
+                screenCleanup = async () => {
                     cancelAnimationFrame(compositeAnimation);
-                    [screenStream, cameraStream]
-                        .forEach(s => s.getTracks().forEach(t => t.stop()));
+                    [screenStream, cameraStream].forEach(s => s.getTracks().forEach(t => t.stop()));
                     screenVid.srcObject = camVid.srcObject = null;
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     await replaceActiveStream(originalStream);
                     isScreenSharing = false;
                 };
-                screenStream.getVideoTracks()[0].onended = cleanup;
+                screenStream.getVideoTracks()[0].onended = screenCleanup;
             }
             else {
                 // screen-only
