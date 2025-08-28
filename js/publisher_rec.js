@@ -1,4 +1,4 @@
-﻿import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
+import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
 const Director = millicast.Director
 const Logger = millicast.Logger
 navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
@@ -19,7 +19,7 @@ let isStopping = false;
 let isRecording = false;
 let startWithRecord = true;
 let canRecordToken = false;
-window.__blockAutoStart = false;  // <— single, global
+window.__blockAutoStart = false;  
 
 if (streamIdParam) {
     const parts = streamIdParam.split('/');
@@ -32,8 +32,9 @@ if (streamIdParam) {
     }
 }
 
-// log what we ended up with for debug
+// Debug
 //console.log('Stream account:', streamAccountId);
+//console.log('Stream name:   ', streamName);
 //console.log('Publish token: ', publishToken);
 
 const disableVideo = false
@@ -1723,62 +1724,52 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
     // Back-compat alias used elsewhere if publish token is not enabaled
     function maybeShowRecordButton() { updateRecordButtonUI(); }
-    // Bind the Record button click once (robust + logging)
+ 
+    // Bind the Record button click once
     onReady(() => {
-        const pubBtn = document.getElementById('publishBtn');
-        if (!pubBtn || pubBtn.__hooked) return;
+        const recordBtn = document.getElementById('recordBtn');
+        if (!recordBtn || recordBtn.__hooked) return;
 
-        pubBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
+        let __recBusy = false;
 
-            console.log('[PUB] click', {
-                btnValue: pubBtn.value,
-                btnText: pubBtn.textContent,
-                isBroadcasting: window.isBroadcasting === true
-            });
+        recordBtn.addEventListener('click', async () => {
+            const pub = getPublisher();
+            if (!window.isBroadcasting || !pub) return;
+            if (__recBusy) return;
+            __recBusy = true;
 
-            if (window.__pubBusy) {
-                console.warn('[PUB] click ignored: busy');
-                return;
-            }
-            window.__pubBusy = true;
+            // lock the button while toggling
+            recordBtn.disabled = true;
 
             try {
-                if (!window.isBroadcasting) {
-                    console.log('[PUB] starting…');
-                    await BroadcastMillicastStream();
-                    console.log('[PUB] start outcome', { isBroadcasting: window.isBroadcasting });
-
-                    if (window.isBroadcasting) {
-                        pubBtn.textContent = 'Stop';
-                        pubBtn.value = 'Stop';
-                        pubBtn.style.backgroundColor = 'red';
-                        window.broadcastHandler?.({ name: 'publishStart' });
-                    }
+                if (isRecording) {
+                    console.log('[REC] calling unrecord()…');
+                    await pub.unrecord?.();
+                    console.log('[REC] unrecord() resolved');
+                    isRecording = false;
+                    // disarm auto-record for the rest of this live session
+                    recordAuto = false;
                 } else {
-                    console.log('[PUB] stopping…');
-                    await safeStopPublish();
-                    console.log('[PUB] stop outcome', { isBroadcasting: window.isBroadcasting });
-
-                    if (!window.isBroadcasting) {
-                        pubBtn.textContent = 'Start';
-                        pubBtn.value = 'Start';
-                        pubBtn.style.backgroundColor = 'green';
-                        window.broadcastHandler?.({ name: 'publishStop' });
-                    }
+                    console.log('[REC] calling record()…');
+                    await pub.record?.();
+                    console.log('[REC] record() resolved');
+                    isRecording = true;
+                    // once the user manually starts, keep it armed
+                    recordAuto = true;
                 }
-            } catch (err) {
-                console.error('[PUB] click error:', err);
+            } catch (e) {
+                console.error('[REC] toggle failed:', e);
             } finally {
-                window.__pubBusy = false;
-                if (typeof updateRecordButtonUI === 'function') updateRecordButtonUI();
+                __recBusy = false;
+                recordBtn.disabled = false;
+                updateRecordButtonUI();
             }
         });
 
-        pubBtn.__hooked = true;
-        syncPublishButtonUI();
-        updateRecordButtonUI();
+        recordBtn.__hooked = true;
+        console.log('🎯 Record button listener attached');
     });
+
 //
     // Preflight: infer recording capability so the Record button can show BEFORE publish
     async function preflightRecordingCapability() {
@@ -1903,7 +1894,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             if (pub && typeof pub.recordingAvailable === 'boolean') {
                 canRecordToken = pub.recordingAvailable;
             }
-            if (recordOnStart && canRecordToken) {
+            if (recordAuto && canRecordToken) {
                 isRecording = true;
             } else {
                 isRecording = false;
@@ -1944,7 +1935,9 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
 
     // Ask server to auto-start recording on connect?
-    const recordOnStart = (typeof startWithRecord === 'boolean') ? startWithRecord : true;
+ 
+    let recordAuto = (typeof startWithRecord === 'boolean') ? startWithRecord : true;
+
 
     /* ---------- STOP publishing safely ---------- */
     async function safeStopPublish() {
@@ -2027,7 +2020,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
         // compute record request *at connect time* using authoritative info if present
         const sessionAllowsRecord = (typeof pub.recordingAvailable === 'boolean') ? pub.recordingAvailable : canRecordToken;
-        const shouldRequestRecord = !!(startWithRecord && sessionAllowsRecord);
+        const shouldRequestRecord = !!(recordAuto && sessionAllowsRecord);
+
 
         attachBroadcastHandlerOnce();
 
