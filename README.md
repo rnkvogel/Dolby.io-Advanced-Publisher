@@ -12,7 +12,7 @@ Updated to show if recording is enabled on the start publishing button.
 * Enable getUserMedia and getDisplayMedia permissions for camera, microphone, and screen sharing.
 * HTTPS context (secure origin) is required for media capture APIs.
 
-[DEMO](https://rnkvogel.github.io/Dolby.io-Advanced-Publisher/{:target="_blank"})
+[DEMO](https://rnkvogel.github.io/Dolby.io-Advanced-Publisher/)
 
 1. Enter your Dolby.io streamId which is your streamAccountId/streamName
 2. Enter your Dolby.io publishing token and click Apply
