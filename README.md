@@ -1,5 +1,6 @@
 # Dolby.io-Advanced-Publisher
 Dolby.io OptiView Publisher with Share and Camera. Presentation or Gaming mode. Media Tracks updated live.
+Updated to show if recording is enabled on the start publishing button.
 
 # Prerequisites
 * Before using this Millicast Publisher, ensure you have the following in place:
@@ -11,7 +12,7 @@ Dolby.io OptiView Publisher with Share and Camera. Presentation or Gaming mode. 
 * Enable getUserMedia and getDisplayMedia permissions for camera, microphone, and screen sharing.
 * HTTPS context (secure origin) is required for media capture APIs.
 
-[DEMO](https://rnkvogel.github.io/Dolby.io-Advanced-Publisher/) 
+[DEMO](https://rnkvogel.github.io/Dolby.io-Advanced-Publisher&target=_blank/) 
 
 1. Enter your Dolby.io streamId which is your streamAccountId/streamName
 2. Enter your Dolby.io publishing token and click Apply
