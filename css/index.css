@@ -590,3 +590,54 @@ canvas#availBitrateOverlay {
 .hidden {
     display: none;
 }
+/* --- Publish + Record overlay layout --- */
+/* --- Record overlay on the Start button --- */
+#publishSection {
+    padding-right: 8px;
+}
+/* small right padding as requested */
+
+.publish-wrap {
+    position: relative;
+    /* Optional: keep a bit of right breathing room next to camera list */
+    margin-right: 8px;
+}
+
+    .publish-wrap #publishBtn {
+        width: 100%;
+    }
+
+    .publish-wrap .record-btn {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 20%;
+        height: 100%;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* Visuals */
+        border-radius: 0 .3rem .3rem 0; /* rounded right like Bootstrap */
+        font-weight: 600;
+        font-size: 0.85rem; /* smaller label */
+        color: #fff; /* default text color white */
+        border: none;
+        text-transform: uppercase;
+    }
+
+/* States controlled by JS */
+.record-armed { /* pre-publish, token says recording available */
+    background: #22422A; /* dark green */
+    color: #ffffff;
+}
+
+.record-ready { /* live, can start recording but not recording yet */
+    background: #BF9E32; /* yellow */
+    color: #212529; /* dark text for contrast on yellow */
+}
+
+.record-live { /* actively recording */
+    background: #8b0000; /* dark red */
+    color: #ffffff;
+}
