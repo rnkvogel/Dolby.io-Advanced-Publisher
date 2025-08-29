@@ -641,3 +641,20 @@ canvas#availBitrateOverlay {
     background: #8b0000; /* dark red */
     color: #ffffff;
 }
+/* Resolution-lock banner under Start (kept here for convenience) */
+#resLockAlert.reslock-alert {
+  position: static;               /* flow under Start button */
+  max-width: 680px;
+  width: 100%;
+  margin: 10px auto 0 auto;
+  text-align: center;
+  font-size: 0.95rem;
+  z-index: 20;
+}
+
+@media (max-width: 576px) {
+  #resLockAlert.reslock-alert {
+    max-width: 92vw;
+    font-size: 0.9rem;
+  }
+}
