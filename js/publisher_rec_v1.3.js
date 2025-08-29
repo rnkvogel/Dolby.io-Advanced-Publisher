@@ -1,4 +1,4 @@
-﻿import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
+import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
 const Director = millicast.Director
 const Logger = millicast.Logger
 navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
@@ -1471,196 +1471,183 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
     //Chrome default camera may clamp resoltuion to 640x480 making video look grainy.
     //This helper will allow the publisher to use the cameras full input
-    // --- Single-device anti-clamp camera init (drop-in) ---
-    (async () => {
-        const APPLY_RETRIES = 3;     // applyConstraints step-up tries
-        const APPLY_RETRY_MS = 300;   // delay between step-up tries
-        const NUDGE_WAIT_MS = 180;   // wait after tiny constraint
-        const REOPEN_WAIT_MS_1 = 900;   // wait between reopen #1
-        const REOPEN_WAIT_MS_2 = 1300;  // wait between reopen #2
-        const FINAL_BASE_IDEAL = { w: 1280, h: 720, fps: 30 };
+    // --- CAMERA INIT: prime -> open -> push -> hard-reopen (single-device clamp breaker) ---
+    navigator.mediaDevices.enumerateDevices().then(async (all) => {
+        const cams = all.filter(d => d.kind === 'videoinput');
+        const target = cams.find(d => d.deviceId !== 'default') || cams[0];
+        if (!target) { console.warn('No video input devices found.'); return; }
 
-        const TIERS_EXACT = [
-            { w: 3840, h: 2160, fps: 30 },
-            { w: 2560, h: 1440, fps: 30 },
-            { w: 1920, h: 1080, fps: 30 },
-            { w: 1280, h: 720, fps: 30 },
-        ];
-
-        const STEP_UPS = [
-            { w: 1280, h: 720 }, { w: 1920, h: 1080 },
-            { w: 2560, h: 1440 }, { w: 3840, h: 2160 },
-        ];
-
-        const tiny = { w: 160, h: 90 }; // used to nudge pipeline
+        // stop any existing stream
+        try { activeStream?.getTracks()?.forEach(t => t.stop()); } catch { }
 
         const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        const supports = navigator.mediaDevices.getSupportedConstraints?.() || {};
 
-        async function enumerateVideoDevices() {
-            const all = await navigator.mediaDevices.enumerateDevices();
-            return all.filter(d => d.kind === 'videoinput');
+        // Prompts cam permission & wakes pipeline without binding to a specific device
+        async function primeDefault() {
+            try {
+                const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                s.getTracks().forEach(t => t.stop());
+                await wait(150);
+                return true;
+            } catch (e) {
+                console.warn('[CAM] primeDefault failed:', e);
+                return false;
+            }
         }
 
-        async function getMinimal(deviceId) {
+        // Open base stream on the **specific** device at a light profile
+        async function openBase(deviceId) {
             return navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { exact: deviceId } },
-                audio: true
+                audio: true,
+                video: {
+                    deviceId: { exact: deviceId },
+                    width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 },
+                    ...(supports.resizeMode ? { resizeMode: 'crop-and-scale' } : {})
+                }
             });
         }
 
-        async function tryExact(deviceId) {
-            for (const t of TIERS_EXACT) {
-                try {
-                    const s = await navigator.mediaDevices.getUserMedia({
-                        video: {
-                            deviceId: { exact: deviceId },
-                            width: { exact: t.w },
-                            height: { exact: t.h },
-                            frameRate: { ideal: t.fps },
-                            aspectRatio: 16 / 9
-                        },
-                        audio: true
-                    });
-                    return s;
-                } catch {
-                    console.warn(`🔁 ${t.w}x${t.h} not supported yet, trying next…`);
-                }
-            }
-            return null;
-        }
+        // Try to push the *existing* track up (exact tiers first, then ideal)
+        async function pushTrackUp(track) {
+            const TIERS = [
+                { w: 3840, h: 2160 }, { w: 2560, h: 1440 },
+                { w: 1920, h: 1080 }, { w: 1280, h: 720 },
+            ];
+            const caps = track.getCapabilities?.() || {};
 
-        async function stepUp(track) {
-            for (const s of STEP_UPS) {
-                for (let i = 0; i <= APPLY_RETRIES; i++) {
-                    try {
-                        await track.applyConstraints({
-                            width: { ideal: s.w }, height: { ideal: s.h },
-                            frameRate: { ideal: 30 },
-                            ...(track.getCapabilities?.().resizeMode ? { resizeMode: 'crop-and-scale' } : {})
-                        });
-                        const set = track.getSettings?.() || {};
-                        if ((settings.width && settings.width > 640) || (settings.height && settings.height > 480)) {
-                            hideResLockAlert();
-                        }
-                        if ((set.width || 0) >= s.w && (set.height || 0) >= s.h) return true;
-                    } catch { /* expected while probing */ }
-                    await wait(APPLY_RETRY_MS);
-                }
+            // exact sizes (strong ask)
+            for (const t of TIERS) {
+                try {
+                    await track.applyConstraints({
+                        width: { exact: t.w }, height: { exact: t.h }, frameRate: { ideal: 30 },
+                        ...(caps.resizeMode ? { resizeMode: 'crop-and-scale' } : {})
+                    });
+                    const s = track.getSettings?.() || {};
+                    if ((s.width || 0) >= t.w * 0.9 && (s.height || 0) >= t.h * 0.9) return true;
+                } catch { }
+                await wait(140);
+            }
+            // ideal sizes (let Chrome choose near-HD)
+            for (const t of TIERS) {
+                try {
+                    await track.applyConstraints({
+                        width: { ideal: t.w }, height: { ideal: t.h }, frameRate: { ideal: 30 },
+                        ...(caps.resizeMode ? { resizeMode: 'crop-and-scale' } : {})
+                    });
+                    const s = track.getSettings?.() || {};
+                    if ((s.width || 0) > 640 || (s.height || 0) > 480) return true;
+                } catch { }
+                await wait(120);
             }
             return false;
         }
 
-        async function nudgeUp(track) {
-            // 1) push tiny
-            try {
-                await track.applyConstraints({ width: { exact: tiny.w }, height: { exact: tiny.h }, frameRate: { ideal: 15 } });
-                await wait(NUDGE_WAIT_MS);
-            } catch { }
-            // 2) jump high
-            try {
-                await track.applyConstraints({
-                    width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 },
-                    ...(track.getCapabilities?.().resizeMode ? { resizeMode: 'crop-and-scale' } : {})
-                });
-                const set = track.getSettings?.() || {};
-                return (set.width || 0) >= 1920; // consider success if >=1080p
-            } catch { return false; }
+        // Fully close and reopen with min+advanced ladder, then push again
+        async function hardReopen(deviceId) {
+            const s = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: {
+                    deviceId: { exact: deviceId },
+                    width: { min: 1280, ideal: 3840 },
+                    height: { min: 720, ideal: 2160 },
+                    frameRate: { ideal: 30 },
+                    advanced: [
+                        { width: 3840, height: 2160, frameRate: 30 },
+                        { width: 2560, height: 1440, frameRate: 30 },
+                        { width: 1920, height: 1080, frameRate: 30 },
+                        { width: 1280, height: 720, frameRate: 30 },
+                    ],
+                    ...(supports.resizeMode ? { resizeMode: 'crop-and-scale' } : {})
+                }
+            });
+            const v = s.getVideoTracks()[0];
+            try { await pushTrackUp(v); } catch { }
+            return s;
         }
 
         function commitStream(stream, label) {
             activeMediaSource = 'camera';
             activeStream = stream;
 
-            const vTrack = stream.getVideoTracks()[0];
-            try { vTrack.contentHint = 'detail'; } catch { }
-            const set = vTrack?.getSettings?.() || {};
-            console.log(`✅ Camera initialized at: ${set.width || '?'}x${set.height || '?'} @ ${set.frameRate || '?'}fps`);
+            const v = stream.getVideoTracks()[0];
+            try { v.contentHint = 'detail'; } catch { }
+            const set = v?.getSettings?.() || {};
 
-            // detach old
+            // attach preview + wire to publisher
             try { if (videoWin.srcObject) videoWin.srcObject = null; } catch { }
             videoWin.srcObject = stream;
-
-            if (millicastPublishUserMedia?.mediaManager) {
-                millicastPublishUserMedia.mediaManager.mediaStream = stream;
+            if (window.millicastPublishUserMedia?.mediaManager) {
+                window.millicastPublishUserMedia.mediaManager.mediaStream = stream;
             }
             try { updateDropdownUI(label); } catch { }
 
+            console.log(`✅ Camera initialized at: ${set.width || '?'}x${set.height || '?'} @ ${set.frameRate || '?'}fps`);
+
             if ((set.width && set.width <= 640) || (set.height && set.height <= 480)) {
                 console.warn('⚠️ Low resolution detected. Chrome may have defaulted to fallback settings.');
-                showResLockAlert(label);  
+                try { showResLockAlert?.(label); } catch { }
+            } else {
+                try { hideResLockAlert?.(); } catch { }
             }
         }
 
-        // ---- START ----
-        // close prior
-        try { activeStream?.getTracks()?.forEach(t => t.stop()); } catch { }
-        try { if (videoWin.srcObject) videoWin.srcObject = null; } catch { }
-        await wait(200);
-
-        const videoDevices = await enumerateVideoDevices();
-        if (!videoDevices.length) {
-            console.warn('No video input devices found.');
-            return;
-        }
-
-        // choose a non-"default" device if we can
-        let target = videoDevices.find(d => d.deviceId && d.deviceId !== 'default') || videoDevices[0];
-        console.log('🎥 Forcing capture from device:', target.label);
-        let stream;
-
-        // First open (minimal), then try step-ups + nudge on SAME device
-        try {
-            stream = await getMinimal(target.deviceId);
-            const track = stream.getVideoTracks()[0];
-            const caps = track.getCapabilities?.();
-            if (caps) console.log('[CAPS]', caps);
-
-            // A) try step-ups
-            const stepped = await stepUp(track);
-
-            // B) if still low, do a nudge (tiny -> high) on the SAME track
-            if (!stepped) {
-                const nudged = await nudgeUp(track);
-                if (!nudged) {
-                    // C) if still low, close & exact tiers
-                    stream.getTracks().forEach(t => t.stop());
-                    stream = await tryExact(target.deviceId);
-                }
-            }
-        } catch (e) {
-            console.warn('First open failed, trying exact tiers:', e?.name || e);
-            stream = await tryExact(target.deviceId);
-        }
-
-        // If still clamped, do a **double-reopen** on the same device with waits
-        if (!stream) {
-            // reopen #1
+        // Expose a manual retry you can call from your banner (no UI added here)
+        window.retryHDUnlock = async function retryHDUnlock() {
             try {
-                stream = await getMinimal(target.deviceId);
-                stream.getTracks().forEach(t => t.stop());
-            } catch { }
-            await wait(REOPEN_WAIT_MS_1);
+                // reopen tiny, then push high, then (if needed) hard reopen
+                activeStream?.getTracks()?.forEach(t => t.stop());
+                await wait(150);
+                let s = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: {
+                        deviceId: { exact: target.deviceId },
+                        width: { ideal: 320 }, height: { ideal: 180 }, frameRate: { ideal: 15 },
+                        ...(supports.resizeMode ? { resizeMode: 'crop-and-scale' } : {})
+                    }
+                });
+                let v = s.getVideoTracks()[0];
+                const raised = await pushTrackUp(v);
+                if (!raised) {
+                    s.getTracks().forEach(t => t.stop());
+                    await wait(220);
+                    s = await hardReopen(target.deviceId);
+                }
+                commitStream(s, target.label || 'Camera');
+            } catch (e) {
+                console.error('[retryHDUnlock] failed:', e);
+            }
+        };
 
-            // reopen #2 with exact tiers
-            stream = await tryExact(target.deviceId);
+        // ---- main path ----
+        try {
+            await primeDefault();                    // 0) wake pipeline
+            let stream = await openBase(target.deviceId); // 1) base on actual device
+            const v = stream.getVideoTracks()[0];
+
+            // 2) push the already-open track up
+            const raised = await pushTrackUp(v);
+
+            if (!raised) {
+                // 3) still clamped — fully reopen and push again
+                try { stream.getTracks().forEach(t => t.stop()); } catch { }
+                await wait(220);
+                stream = await hardReopen(target.deviceId);
+            }
+
+            commitStream(stream, target.label || 'Camera');
+        } catch (err) {
+            console.error('❌ Failed to initialize camera:', err);
+            // last resort: default camera so preview isn’t blank
+            try {
+                const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                commitStream(s, target?.label || 'Camera');
+            } catch (e2) {
+                console.error('❌ Could not open even default camera:', e2);
+            }
         }
+    });
 
-        // Final base fallback
-        if (!stream) {
-            console.warn('⚠️ Falling back to base constraints.');
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    deviceId: { exact: target.deviceId },
-                    width: { ideal: FINAL_BASE_IDEAL.w }, height: { ideal: FINAL_BASE_IDEAL.h },
-                    frameRate: { ideal: FINAL_BASE_IDEAL.fps }, aspectRatio: 16 / 9
-                },
-                audio: true
-            });
-        }
-
-        // Commit
-        commitStream(stream, target.label);
-    })().catch(err => console.error('Camera init failed:', err));
 
     /**
      * Updates the dropdown UI and <p> tag text to reflect the selected source.
@@ -1769,6 +1756,43 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             if (typeof updateRecordButtonUI === 'function') updateRecordButtonUI();
         }
     });
+
+    //Edge Helper
+    // ---- Robust getUserMedia (Edge/Chrome retries) ----
+    async function getUserMediaRobust(preferredConstraints) {
+        const tryOnce = async (c) => {
+            const stream = await navigator.mediaDevices.getUserMedia(c);
+            // Apply any “exact”/high constraints AFTER we have a track (Edge is happier)
+            const v = stream.getVideoTracks()[0];
+            if (v && preferredConstraints?.video && typeof v.applyConstraints === 'function') {
+                try { await v.applyConstraints(preferredConstraints.video); } catch (_) { }
+            }
+            return stream;
+        };
+
+        // 1) Try the requested constraints
+        try { return await tryOnce(preferredConstraints); }
+        catch (e1) {
+            console.warn('[GUM] first attempt failed:', e1?.name || e1);
+
+            // 2) If AbortError/NotReadable/etc, retry with simple video:true
+            if (e1 && (e1.name === 'AbortError' || e1.name === 'NotReadableError' || e1.name === 'OverconstrainedError')) {
+                await new Promise(r => setTimeout(r, 350));
+                try { return await tryOnce({ video: true, audio: preferredConstraints?.audio ?? false }); }
+                catch (e2) {
+                    console.warn('[GUM] fallback video:true failed:', e2?.name || e2);
+                }
+            }
+
+            // 3) Last resort: very safe SD + audio if requested
+            await new Promise(r => setTimeout(r, 350));
+            return await tryOnce({
+                video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 30 } },
+                audio: preferredConstraints?.audio ?? false
+            });
+        }
+    }
+
     // ===== PUBLISH + RECORD (single, self-contained block) =====
 
     // Global live/record state
@@ -1980,6 +2004,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
       <strong>Low resolution detected (640×480)</strong><br>
       Chrome sometimes clamps the first camera open.
       Please select your camera in the dropdown once to break the lock.
+      Start publish and select resolution to adjust higher.
     `;
         }
 
@@ -2023,8 +2048,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         }
     });
 
-
-
+   
     function showResLockAlert(deviceLabel) {
         const banner = ensureResLockAlert();
         // defensively check the <strong> exists
@@ -2052,9 +2076,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             camControl.__resLockHook = true;
         }
     });
-
-
-//
+   
     // Preflight: infer recording capability so the Record button can show BEFORE publish
     async function preflightRecordingCapability() {
         try {
