@@ -2480,3 +2480,4 @@ document.addEventListener("DOMContentLoaded", async (event) => {
     initUI()
 
 })
+
