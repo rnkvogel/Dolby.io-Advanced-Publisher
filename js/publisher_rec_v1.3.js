@@ -1,3 +1,4 @@
+//v1.3 9.18
 import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
 const Director = millicast.Director
 const Logger = millicast.Logger
@@ -413,179 +414,186 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         }
     }
 
-    //  wire up buttons once DOM is ready 
-    document.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('screenShareOnly')
-            .addEventListener('click', () => startScreenShare('screenOnly'));
-        document.getElementById('screenCameraComposite')
-            .addEventListener('click', () => startScreenShare('composite'));
-    });
-
+  
     // full startScreenShare implementation
     async function startScreenShare(mode) {
-        let screenStream, cameraStream, canvasStream;
-        let cleanup;
+        // 🔒 Global lock shared across BOTH files
+        if (window.__mc_displayPickerLock) {
+            console.warn('Screen-share already in progress; ignoring extra request.');
+            return window.__mc_displayPickerLock;
+        }
 
-        try {
-            //  save & mix your existing audio
-            originalStream = activeStream;
-            const oldAudio = originalStream.getAudioTracks();
+        window.__mc_displayPickerLock = (async () => {
+            let screenStream, cameraStream, canvasStream;
+            let cleanup;
+            let compositeAnimation = null;
 
-            // grab screen + its audio // Only if Chrome you will see this.
-            screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: true,
-                audio: true
-            });
-            const screenAudio = screenStream.getAudioTracks();
+            try {
+                const originalStream = activeStream || null;
+                const oldAudio = (originalStream?.getAudioTracks?.() || []);
 
-            // build videoTracks based on mode
-            let videoTracks;
-            if (mode === 'composite') {
-                // grab camera (video only)
-                cameraStream = await navigator.mediaDevices.getUserMedia({
+                // --- Chrome focus control + exclude current tab, allow switching ---
+                const controller = (typeof CaptureController !== 'undefined')
+                    ? new CaptureController()
+                    : null;
+                if (controller?.setFocusBehavior) {
+                    controller.setFocusBehavior('no-focus-change'); // stay on publisher
+                }
+                const displayOpts = {
+                    controller,
                     video: {
-                        width: { ideal: 640, max: 854 },
-                        height: { ideal: 360, max: 480 },
-                        frameRate: { ideal: 24, max: 30 }
+                        selfBrowserSurface: 'exclude',   // hide the publisher tab
+                        surfaceSwitching: 'include'      // allow “Change” later without new prompt
                     },
-                    audio: false
-                });
-
-                // render both into hidden video adjust as needed.
-                const screenVid = document.getElementById('screenVideo');
-                const camVid = document.getElementById('cameraVideo');
-                screenVid.srcObject = screenStream;
-                camVid.srcObject = cameraStream;
-                await screenVid.play().catch(() => { });
-                await camVid.play().catch(() => { });
-
-
-                // … inside your “composite” branch, after you’ve got screenStream & cameraStream …
-
-                //Setup canvas at 16:9 using the screen’s width
-                const canvas = document.getElementById('compositeCanvas');
-                const ctx = canvas.getContext('2d');
-                const s = screenStream.getVideoTracks()[0].getSettings();
-                canvas.width = s.width || 1280;                  // e.g. 1280
-                canvas.height = Math.floor(canvas.width * 9 / 16); // enforce 16:9
-
-                //Compute camera overlay size from its natural aspect
-                const camSets = cameraStream.getVideoTracks()[0].getSettings();
-                const camAR = (camSets.width && camSets.height)
-                    ? camSets.width / camSets.height
-                    : 4 / 3;                           // fallback 4∶3
-                const camW = Math.floor(canvas.width * 0.23);
-                const camH = Math.floor(camW / camAR);
-
-                // starting at bottom-right
-                let overlayX = canvas.width - camW - 22;
-                let overlayY = canvas.height - camH - 22;
-
-                // dragging state
-                let dragging = false, offsetX = 0, offsetY = 0;
-
-                //Map mouse on video → canvas coords
-                const videoWin = document.getElementById('vidWin');
-                function mapToCanvasCoord(clientX, clientY) {
-                    const rect = videoWin.getBoundingClientRect();
-                    const xScale = canvas.width / rect.width;
-                    const yScale = canvas.height / rect.height;
-                    const x = (clientX - rect.left) * xScale;
-                    const y = (clientY - rect.top) * yScale;
-                    return { x, y };
-                }
-
-                //Drag handlers on the video element
-                videoWin.style.cursor = 'move';
-                videoWin.addEventListener('mousedown', e => {
-                    const { x: mx, y: my } = mapToCanvasCoord(e.clientX, e.clientY);
-                    if (mx >= overlayX && mx <= overlayX + camW &&
-                        my >= overlayY && my <= overlayY + camH) {
-                        dragging = true;
-                        offsetX = mx - overlayX;
-                        offsetY = my - overlayY;
-                        window.addEventListener('mousemove', onMouseMove);
-                        window.addEventListener('mouseup', onMouseUp);
+                    audio: {
+                        systemAudio: 'include',
+                        selfBrowserSurface: 'exclude'
                     }
-                });
-
-                function onMouseMove(e) {
-                    if (!dragging) return;
-                    const { x: mx, y: my } = mapToCanvasCoord(e.clientX, e.clientY);
-                    overlayX = Math.max(0, Math.min(canvas.width - camW, mx - offsetX));
-                    overlayY = Math.max(0, Math.min(canvas.height - camH, my - offsetY));
-                }
-
-                function onMouseUp() {
-                    dragging = false;
-                    window.removeEventListener('mousemove', onMouseMove);
-                    window.removeEventListener('mouseup', onMouseUp);
-                }
-
-                //Draw loop
-                function drawComposite() {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    // full-screen screen‐share
-                    ctx.drawImage(screenVid, 0, 0, canvas.width, canvas.height);
-                    // camera overlay at new position
-                    ctx.drawImage(camVid, overlayX, overlayY, camW, camH);
-                    ctx.lineWidth = 3;
-                    ctx.strokeStyle = '#fff';
-                    ctx.strokeRect(overlayX, overlayY, camW, camH);
-                    compositeAnimation = requestAnimationFrame(drawComposite);
-                }
-                drawComposite();
-
-                //Now capture & publish canvas + audio as before
-                canvasStream = canvas.captureStream(30);
-                videoTracks = canvasStream.getVideoTracks();
-
-
-                // capture canvas video
-                canvasStream = canvas.captureStream(30);
-                videoTracks = canvasStream.getVideoTracks();
-
-                // cleanup/composite stop handler
-                cleanup = async () => {
-                    cancelAnimationFrame(compositeAnimation);
-                    [screenStream, cameraStream]
-                        .forEach(s => s.getTracks().forEach(t => t.stop()));
-                    screenVid.srcObject = camVid.srcObject = null;
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    await replaceActiveStream(originalStream);
-                    isScreenSharing = false;
                 };
-                screenStream.getVideoTracks()[0].onended = cleanup;
+                // -------------------------------------------------------------------
+
+                // Single, authoritative OS picker (shared by both scripts via the lock)
+                screenStream = await navigator.mediaDevices.getDisplayMedia(displayOpts);
+                const screenAudio = screenStream.getAudioTracks();
+
+                // build videoTracks based on mode
+                let videoTracks;
+                if (mode === 'composite') {
+                    // camera (video only)
+                    const camConstraints = {
+                        video: {
+                            width: { ideal: 640, max: 854 },
+                            height: { ideal: 360, max: 480 },
+                            frameRate: { ideal: 24, max: 30 }
+                        },
+                        audio: false
+                    };
+                    const cameraStream = await navigator.mediaDevices.getUserMedia(camConstraints);
+
+                    // hidden elements for drawing
+                    const screenVid = document.getElementById('screenVideo');
+                    const camVid = document.getElementById('cameraVideo');
+                    screenVid.srcObject = screenStream;
+                    camVid.srcObject = cameraStream;
+                    await screenVid.play().catch(() => { });
+                    await camVid.play().catch(() => { });
+
+                    // canvas at 16:9 using the screen’s width
+                    const canvas = document.getElementById('compositeCanvas');
+                    const ctx = canvas.getContext('2d');
+                    const s = screenStream.getVideoTracks()[0].getSettings();
+                    canvas.width = s.width || 1280;
+                    canvas.height = Math.floor(canvas.width * 9 / 16);
+
+                    // camera overlay size from natural aspect
+                    const camSets = cameraStream.getVideoTracks()[0].getSettings();
+                    const camAR = (camSets.width && camSets.height) ? (camSets.width / camSets.height) : (4 / 3);
+                    const camW = Math.floor(canvas.width * 0.23);
+                    const camH = Math.floor(camW / camAR);
+
+                    // starting position bottom-right
+                    let overlayX = canvas.width - camW - 22;
+                    let overlayY = canvas.height - camH - 22;
+
+                    // dragging support on preview window
+                    const videoWin = document.getElementById('vidWin');
+                    function mapToCanvasCoord(clientX, clientY) {
+                        const rect = videoWin.getBoundingClientRect();
+                        const xScale = canvas.width / rect.width;
+                        const yScale = canvas.height / rect.height;
+                        return { x: (clientX - rect.left) * xScale, y: (clientY - rect.top) * yScale };
+                    }
+                    videoWin.style.cursor = 'move';
+                    let dragging = false, offsetX = 0, offsetY = 0;
+                    const onMouseMove = (e) => {
+                        if (!dragging) return;
+                        const { x: mx, y: my } = mapToCanvasCoord(e.clientX, e.clientY);
+                        overlayX = Math.max(0, Math.min(canvas.width - camW, mx - offsetX));
+                        overlayY = Math.max(0, Math.min(canvas.height - camH, my - offsetY));
+                    };
+                    const onMouseUp = () => {
+                        dragging = false;
+                        window.removeEventListener('mousemove', onMouseMove);
+                        window.removeEventListener('mouseup', onMouseUp);
+                    };
+                    const onMouseDown = (e) => {
+                        const { x: mx, y: my } = mapToCanvasCoord(e.clientX, e.clientY);
+                        if (mx >= overlayX && mx <= overlayX + camW && my >= overlayY && my <= overlayY + camH) {
+                            dragging = true;
+                            offsetX = mx - overlayX;
+                            offsetY = my - overlayY;
+                            window.addEventListener('mousemove', onMouseMove);
+                            window.addEventListener('mouseup', onMouseUp);
+                        }
+                    };
+                    videoWin.addEventListener('mousedown', onMouseDown);
+
+                    // draw loop
+                    function drawComposite() {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(screenVid, 0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(camVid, overlayX, overlayY, camW, camH);
+                        ctx.lineWidth = 3;
+                        ctx.strokeStyle = '#fff';
+                        ctx.strokeRect(overlayX, overlayY, camW, camH);
+                        compositeAnimation = requestAnimationFrame(drawComposite);
+                    }
+                    drawComposite();
+
+                    // capture canvas video (once)
+                    canvasStream = canvas.captureStream(30);
+                    videoTracks = canvasStream.getVideoTracks();
+
+                    // cleanup
+                    cleanup = async () => {
+                        if (compositeAnimation) cancelAnimationFrame(compositeAnimation);
+                        [screenStream, cameraStream].forEach(s => s && s.getTracks().forEach(t => t.stop()));
+                        screenVid.srcObject = null;
+                        camVid.srcObject = null;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        videoWin.removeEventListener('mousedown', onMouseDown);
+                        videoWin.style.cursor = '';
+                        await replaceActiveStream(originalStream);
+                        isScreenSharing = false;
+                    };
+                    screenStream.getVideoTracks()[0].onended = cleanup;
+                } else {
+                    // screen-only
+                    videoTracks = screenStream.getVideoTracks();
+                    cleanup = async () => {
+                        screenStream.getTracks().forEach(t => t.stop());
+                        await replaceActiveStream(originalStream);
+                        isScreenSharing = false;
+                    };
+                    screenStream.getVideoTracks()[0].onended = cleanup;
+                }
+
+                // mix screen + old mic audio
+                const mixedAudio = await mixAudioTracks(screenAudio, oldAudio);
+
+                // publish
+                const newStream = new MediaStream([...videoTracks, mixedAudio]);
+                await replaceActiveStream(newStream);
+                isScreenSharing = true;
+
+            } catch (err) {
+                if (err?.name === 'NotAllowedError') {
+                    console.warn('User cancelled screen capture.');
+                } else {
+                    console.error('startScreenShare error:', err);
+                }
+                if (cleanup) await cleanup();
+                throw err;
+            } finally {
+                // release the global lock
+                window.__mc_displayPickerLock = null;
             }
-            else {
-                // screen-only
-                videoTracks = screenStream.getVideoTracks();
-                cleanup = async () => {
-                    screenStream.getTracks().forEach(t => t.stop());
-                    await replaceActiveStream(originalStream);
-                    isScreenSharing = false;
-                };
-                screenStream.getVideoTracks()[0].onended = cleanup;
-            }
+        })();
 
-            //  mix screen + old mic audio
-            const mixedAudio = await mixAudioTracks(screenAudio, oldAudio);
-
-            //  assemble the final stream
-            const newStream = new MediaStream([
-                ...videoTracks,
-                mixedAudio
-            ]);
-
-            //  publish it
-            await replaceActiveStream(newStream);
-            isScreenSharing = true;
-        }
-        catch (err) {
-            console.error('startScreenShare error:', err);
-            if (cleanup) cleanup();
-        }
+        return window.__mc_displayPickerLock;
     }
+
+
 
     //   End Screen Share
     document.addEventListener("DOMContentLoaded", () => {
@@ -1650,30 +1658,131 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
 
     /**
-     * Updates the dropdown UI and <p> tag text to reflect the selected source.
-     * @param {string} selectedLabel - The label of the selected source.
+     * Updates the camera/screen dropdown UI and button label.
+     * Supports: camera, screenOnly, composite (screen + camera overlay).
+     * @param {string=} selectedLabel - Human label to show in the button; if omitted, inferred from activeMediaSource.
      */
     function updateDropdownUI(selectedLabel) {
-        const camListItems = document.querySelectorAll('#camList .dropdown-item');
-        const camListBtn = document.getElementById('camListBtn');
-        let label = selectedLabel || 'Select Camera'; // Default text
+        const list = document.getElementById('camList');
+        const btn = document.getElementById('camListBtn');
+        if (!list || !btn) {
+            console.warn('[updateDropdownUI] Missing #camList or #camListBtn');
+            return;
+        }
 
-        camListItems.forEach(item => {
-            if (
-                (item.id === 'screenShare' && activeMediaSource === 'screen') ||
-                (activeMediaSource === 'camera' && item.textContent === selectedLabel)
-            ) {
-                // Highlight the active source
-                item.classList.add('active');
-            } else {
-                item.classList.remove('active');
-            }
+        // 1) Normalize current source → label (fallbacks if caller didn’t pass one)
+        // Expect activeMediaSource ∈ {'camera','screen','screenOnly','composite'}.
+        const source = (typeof activeMediaSource === 'string') ? activeMediaSource : '';
+        const inferredLabel =
+            source === 'composite' ? 'Screen + Camera Overlay' :
+                source === 'screen' ? 'Screen Share' :
+                    source === 'screenOnly' ? 'Screen Share Only' :
+                        source === 'camera' ? 'Camera' :
+                            'Select Camera';
+
+        const label = (selectedLabel && String(selectedLabel).trim()) || inferredLabel;
+
+        // 2) Clear all states first
+        const items = list.querySelectorAll('.dropdown-item');
+        items.forEach(el => {
+            el.classList.remove('active');
+            el.setAttribute('aria-selected', 'false');
+            el.removeAttribute('aria-pressed');
         });
 
-        // Update the dropdown button text
-        camListBtn.querySelector('p').textContent = label;
-        console.log("Dropdown updated with selected:", label);
+        // 3) Decide which item should be marked active
+        // Prefer id match, then fallback to text match.
+        // Common ids you may have: #screenShareOnly, #screenCameraComposite, camera entries with data-device-id, etc.
+        let activeItem = null;
+        const idByLabel = {
+            'Screen Share': 'screenShareOnly',          // if your menu says "Screen Share"
+            'Screen Share Only': 'screenShareOnly',     // explicit
+            'Screen + Camera Overlay': 'screenCameraComposite',
+            'Camera': null                              // will use text fallback
+        };
+
+        const preferredId = idByLabel[label] || null;
+        if (preferredId) {
+            activeItem = list.querySelector(`#${CSS.escape(preferredId)}`);
+        }
+        if (!activeItem) {
+            // fallback by text (trim & collapse whitespace)
+            const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+            for (const el of items) {
+                if (norm(el.textContent) === norm(label)) { activeItem = el; break; }
+            }
+        }
+
+        // 4) Apply active state (if we found one)
+        if (activeItem) {
+            activeItem.classList.add('active');
+            activeItem.setAttribute('aria-selected', 'true');
+            activeItem.setAttribute('aria-pressed', 'true');
+        }
+
+        // 5) Update button label safely
+        const p = btn.querySelector('p');
+        if (p) p.textContent = label;
+        else btn.textContent = label;
+
+        // Optional: keep a data attribute for other logic/telemetry
+        btn.setAttribute('data-selected-label', label);
+        btn.setAttribute('aria-label', `Selected source: ${label}`);
+
+        // Helpful debug (de-duped spam)
+        if (!updateDropdownUI.__lastLog || updateDropdownUI.__lastLog !== label) {
+            console.log('Dropdown updated with selected:', label);
+            updateDropdownUI.__lastLog = label;
+        }
+        // ===== attach once, across files =====
+        if (!window.__mc_ui_wired) {
+            window.__mc_ui_wired = true;
+
+            const camsList = document.getElementById('camList');
+            if (camsList) {
+                camsList.addEventListener('click', async (e) => {
+                    const t = e.target;
+                    if (!t || !t.classList.contains('dropdown-item')) return;
+
+                    // prevent other handlers (in the other file) from also firing
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+
+                    // per-click debounce (same tick)
+                    if (window.__mc_shareClickInProgress) {
+                        console.warn('Share click ignored: in progress');
+                        return;
+                    }
+                    window.__mc_shareClickInProgress = true;
+                    setTimeout(() => (window.__mc_shareClickInProgress = false), 0);
+
+                    if (t.id === 'screenShareOnly') {
+                        updateDropdownUI('Screen Share Only');
+                        try { await startScreenShare('screenOnly'); }
+                        catch (err) {
+                            if (err?.name === 'NotAllowedError') console.warn('User cancelled screen share (screenOnly).');
+                            else console.error(err);
+                        }
+                        return;
+                    }
+
+                    if (t.id === 'screenCameraComposite') {
+                        updateDropdownUI('Screen + Camera Overlay');
+                        try { await startScreenShare('composite'); }
+                        catch (err) {
+                            if (err?.name === 'NotAllowedError') console.warn('User cancelled screen share (composite).');
+                            else console.error(err);
+                        }
+                        return;
+                    }
+
+                    // ... normal camera logic ...
+                }, { capture: true }); // capture=true makes stopImmediatePropagation strongest
+            }
+        }
+
     }
+
     //Debug
     console.log("Current activeMediaSource:", activeMediaSource);
     console.log("Current activeStream:", activeStream);
@@ -2480,4 +2589,3 @@ document.addEventListener("DOMContentLoaded", async (event) => {
     initUI()
 
 })
-
