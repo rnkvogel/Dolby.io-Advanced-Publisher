@@ -1,4 +1,4 @@
-//v1.3 9.18
+//v1.3.3
 import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
 const Director = millicast.Director
 const Logger = millicast.Logger
@@ -1670,7 +1670,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             return;
         }
 
-        // 1) Normalize current source → label (fallbacks if caller didn’t pass one)
+        // Normalize current source → label (fallback if caller didn’t pass one)
         // Expect activeMediaSource ∈ {'camera','screen','screenOnly','composite'}.
         const source = (typeof activeMediaSource === 'string') ? activeMediaSource : '';
         const inferredLabel =
@@ -1682,7 +1682,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
         const label = (selectedLabel && String(selectedLabel).trim()) || inferredLabel;
 
-        // 2) Clear all states first
+        // Clear states
         const items = list.querySelectorAll('.dropdown-item');
         items.forEach(el => {
             el.classList.remove('active');
@@ -1690,15 +1690,13 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             el.removeAttribute('aria-pressed');
         });
 
-        // 3) Decide which item should be marked active
-        // Prefer id match, then fallback to text match.
-        // Common ids you may have: #screenShareOnly, #screenCameraComposite, camera entries with data-device-id, etc.
+        // Decide which item should be active (prefer id, then text)
         let activeItem = null;
         const idByLabel = {
-            'Screen Share': 'screenShareOnly',          // if your menu says "Screen Share"
-            'Screen Share Only': 'screenShareOnly',     // explicit
+            'Screen Share': 'screenShareOnly',
+            'Screen Share Only': 'screenShareOnly',
             'Screen + Camera Overlay': 'screenCameraComposite',
-            'Camera': null                              // will use text fallback
+            'Camera': null // fall back to text match
         };
 
         const preferredId = idByLabel[label] || null;
@@ -1706,82 +1704,78 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             activeItem = list.querySelector(`#${CSS.escape(preferredId)}`);
         }
         if (!activeItem) {
-            // fallback by text (trim & collapse whitespace)
             const norm = s => (s || '').replace(/\s+/g, ' ').trim();
             for (const el of items) {
                 if (norm(el.textContent) === norm(label)) { activeItem = el; break; }
             }
         }
 
-        // 4) Apply active state (if we found one)
         if (activeItem) {
             activeItem.classList.add('active');
             activeItem.setAttribute('aria-selected', 'true');
             activeItem.setAttribute('aria-pressed', 'true');
         }
 
-        // 5) Update button label safely
+        // Update button label safely
         const p = btn.querySelector('p');
         if (p) p.textContent = label;
         else btn.textContent = label;
 
-        // Optional: keep a data attribute for other logic/telemetry
         btn.setAttribute('data-selected-label', label);
         btn.setAttribute('aria-label', `Selected source: ${label}`);
 
-        // Helpful debug (de-duped spam)
-        if (!updateDropdownUI.__lastLog || updateDropdownUI.__lastLog !== label) {
+        if (updateDropdownUI.__lastLog !== label) {
             console.log('Dropdown updated with selected:', label);
             updateDropdownUI.__lastLog = label;
         }
-        // ===== attach once, across files =====
-        if (!window.__mc_ui_wired) {
-            window.__mc_ui_wired = true;
-
-            const camsList = document.getElementById('camList');
-            if (camsList) {
-                camsList.addEventListener('click', async (e) => {
-                    const t = e.target;
-                    if (!t || !t.classList.contains('dropdown-item')) return;
-
-                    // prevent other handlers (in the other file) from also firing
-                    e.stopImmediatePropagation();
-                    e.preventDefault();
-
-                    // per-click debounce (same tick)
-                    if (window.__mc_shareClickInProgress) {
-                        console.warn('Share click ignored: in progress');
-                        return;
-                    }
-                    window.__mc_shareClickInProgress = true;
-                    setTimeout(() => (window.__mc_shareClickInProgress = false), 0);
-
-                    if (t.id === 'screenShareOnly') {
-                        updateDropdownUI('Screen Share Only');
-                        try { await startScreenShare('screenOnly'); }
-                        catch (err) {
-                            if (err?.name === 'NotAllowedError') console.warn('User cancelled screen share (screenOnly).');
-                            else console.error(err);
-                        }
-                        return;
-                    }
-
-                    if (t.id === 'screenCameraComposite') {
-                        updateDropdownUI('Screen + Camera Overlay');
-                        try { await startScreenShare('composite'); }
-                        catch (err) {
-                            if (err?.name === 'NotAllowedError') console.warn('User cancelled screen share (composite).');
-                            else console.error(err);
-                        }
-                        return;
-                    }
-
-                    // ... normal camera logic ...
-                }, { capture: true }); // capture=true makes stopImmediatePropagation strongest
-            }
-        }
-
     }
+
+    /* =========================
+       Attach once, across files
+       ========================= */
+    if (!window.__mc_ui_wired) {
+        window.__mc_ui_wired = true;
+
+        const camsList = document.getElementById('camList');
+        if (camsList) {
+            camsList.addEventListener('click', async (e) => {
+                const t = e.target && e.target.closest('.dropdown-item');
+                if (!t) return;
+
+                // Only intercept the two virtual screen-share items; let real cameras bubble to your existing handler.
+                const isVirtual = (t.id === 'screenShareOnly' || t.id === 'screenCameraComposite');
+                if (!isVirtual) return; // allow normal camera selection logic to run elsewhere
+
+                // Per-click debounce
+                if (window.__mc_shareClickInProgress) { e.preventDefault(); return; }
+                window.__mc_shareClickInProgress = true;
+                setTimeout(() => { window.__mc_shareClickInProgress = false; }, 0);
+
+                // Stop other handlers (in other files) from firing for these two items
+                e.stopImmediatePropagation();
+                e.preventDefault();
+
+                try {
+                    if (t.id === 'screenShareOnly') {
+                        activeMediaSource = 'screenOnly';
+                        updateDropdownUI('Screen Share Only');
+                        await startScreenShare('screenOnly');
+                    } else {
+                        activeMediaSource = 'composite';
+                        updateDropdownUI('Screen + Camera Overlay');
+                        await startScreenShare('composite');
+                    }
+                } catch (err) {
+                    if (err?.name === 'NotAllowedError') {
+                        console.warn('User cancelled screen capture.');
+                    } else {
+                        console.error('Screen share error:', err);
+                    }
+                }
+            }, { capture: true }); // capture so stopImmediatePropagation fully blocks duplicates
+        }
+    }
+
 
     //Debug
     console.log("Current activeMediaSource:", activeMediaSource);
