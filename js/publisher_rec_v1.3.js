@@ -1,4 +1,4 @@
-//v1.3.3
+//v1.3.33.1
 import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
 const Director = millicast.Director
 const Logger = millicast.Logger
@@ -248,10 +248,10 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         '480': 450, // 450 Kbps
         '540': 600, // 600 Kbps
         '640': 800, // 800 Kbps
-        '720': 2000, // 2000 Kbps
-        '1080': 6000, // 4000 Kbps
-        '1440': 8000, // 6000 Kbps
-        '2160': 10000  // 8000 Kbps
+        '720': 2500, // 2500 Kbps
+        '1080': 6000, // 6000 Kbps
+        '1440': 8000, // 8000 Kbps
+        '2160': 10000  // 10000 Kbps
     };
     /// Setting the bitrate to the resolution based on resoltuion
 
@@ -450,7 +450,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                         selfBrowserSurface: 'exclude'
                     }
                 };
-                // -------------------------------------------------------------------
+
 
                 // Single, authoritative OS picker (shared by both scripts via the lock)
                 screenStream = await navigator.mediaDevices.getDisplayMedia(displayOpts);
@@ -595,7 +595,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
 
 
-    //   End Screen Share
+ //   End Screen Share
     document.addEventListener("DOMContentLoaded", () => {
         const elResolutionList = document.querySelectorAll("#resolutionMenu > .dropdown-item");
         elResolutionList.forEach((el) => el.addEventListener("click", onSetResolution));
@@ -782,7 +782,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             // Apply new constraints
             const newConstraints = {
                 height: { ideal: resolution, max: 2160 }, // Adjust height constraint and will handle 4k
-                //width: { ideal: 1280, max: 3640 },
+                width: { ideal: 1280, max: 3640 },
                 aspectRatio: aspectRatio,
                 frameRate: fps, // Maintain frame rate
             };
@@ -962,8 +962,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             // Default camera set on Chrome may lock to 640x480
             const constraints = {
                 height: { min: parseInt(selectedResolutionBtn.innerHTML), max: 2160 },
-                //width: Math.round(parseInt(selectedResolutionBtn.innerHTML) * (16 / 9)),
-                //width: { ideal: Math.round(parseInt(selectedResolutionBtn.innerHTML) * (16 / 9)) },
+                width: Math.round(parseInt(selectedResolutionBtn.innerHTML) * (16 / 9)),
+                width: { ideal: Math.round(parseInt(selectedResolutionBtn.innerHTML) * (16 / 9)) },
 
                 frameRate: fps,
                 aspectRatio: aspect,
@@ -1095,7 +1095,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         millicastPublishUserMedia.mediaManager.constraints = {
             audio: !disableAudio ? a : false,
             video: !disableVideo ? {
-                //width:  {min:420, ideal:width, max:3840 }, //Mobile Does not like this set
+               // width:  {min:420, ideal:width, max:3840 }, //Mobile Does not like this set
                 height: { min: 180, ideal: resolution, max: 2160 },
                 aspectRatio: `${aspect} `,
                 fps: `${fps} `
@@ -1510,7 +1510,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 audio: true,
                 video: {
                     deviceId: { exact: deviceId },
-                    width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 },
+                   // width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 },
                     ...(supports.resizeMode ? { resizeMode: 'crop-and-scale' } : {})
                 }
             });
