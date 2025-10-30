@@ -1,7 +1,6 @@
 # Dolby.io-Advanced-Publisher
-Dolby.io OptiView Publisher with Share and Camera. Presentation or Gaming mode. Media Tracks updated live.
+Dolby.io OptiView Publisher with Screen Share, Dual Camera. Presentation or Gaming mode. Media Tracks updated live.
 Updated to show if recording is enabled on the start publishing button.
-
 
 
 # Prerequisites
@@ -30,6 +29,12 @@ Updated to show if recording is enabled on the start publishing button.
 # Move camera position anytime for your presentation or game stream.
 
 <img width="1439" height="942" alt="Screenshot 2025-08-07 at 11 49 18 AM" src="https://github.com/user-attachments/assets/a47a93c3-9ba3-45a4-afff-b98114068b59" />
+
+# Dual cameras.
+<img width="1476" height="714" alt="Screenshot 2025-10-30 at 8 18 56 AM" src="https://github.com/user-attachments/assets/1cd0365a-62d2-48e3-8fa2-dd97751ea022" />
+
+# Camera Screen Share. Add a message board ect to your stream.
+
 
 # Update Bitrate, Aspect Ratio or Resolution Live to improve quality or view when publishing.
 
