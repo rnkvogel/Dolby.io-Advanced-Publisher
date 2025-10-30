@@ -278,8 +278,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         '240': 250, // 250 Kbps
         '360': 400, // 400 Kbps
         '480': 450, // 450 Kbps
-        '540': 600, // 600 Kbps
-        '640': 800, // 800 Kbps
+        '540': 600, // 700 Kbps
+        '640': 800, // 100 Kbps
         '720': 2000, // 2000 Kbps
         '1080': 6000, // 4000 Kbps
         '1440': 8000, // 8000 Kbps
@@ -500,7 +500,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     video: {
                         width: { ideal: 640, max: 854 },
                         height: { ideal: 360, max: 480 },
-                        frameRate: { ideal: 24, max: 30 }
+                        frameRate: { ideal: 20, max: 30 }
                     },
                     audio: false
                 });
@@ -660,9 +660,9 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             // get main CAMERA (no audio here — we’ll reuse/mix mic separately)
             cameraStream = await navigator.mediaDevices.getUserMedia({
                 video: {
-                    width: { ideal: 1920, max: 3840 },
-                    height: { ideal: 1080, max: 2160 },
-                    frameRate: { ideal: 30, max: 60 },
+                    width: { ideal: 1280, max: 3840 },
+                    height: { ideal: 720, max: 2160 },
+                    frameRate: { ideal: 24, max: 60 },
                     aspectRatio: 16 / 9
                 },
                 audio: false
@@ -836,9 +836,9 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     camAStream = await navigator.mediaDevices.getUserMedia({
                         video: {
                             deviceId: { exact: primaryId },
-                            width: { ideal: 1920, max: 3840 },
-                            height: { ideal: 1080, max: 2160 },
-                            frameRate: { ideal: 30, max: 60 },
+                            width: { ideal: 1280, max: 3840 },
+                            height: { ideal: 720, max: 2160 },
+                            frameRate: { ideal: 24, max: 60 },
                             aspectRatio: 16 / 9
                         },
                         audio: false
@@ -871,7 +871,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                             deviceId: { exact: pipId },
                             width: { ideal: 640, max: 854 },
                             height: { ideal: 360, max: 480 },
-                            frameRate: { ideal: 24, max: 30 }
+                            frameRate: { ideal: 20, max: 30 }
                         },
                         audio: false
                     });
@@ -881,7 +881,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                         camBStream = await navigator.mediaDevices.getUserMedia({
                             video: {
                                 deviceId: { exact: pipId },
-                                width: { ideal: 320 }, height: { ideal: 180 }, frameRate: { ideal: 24 }
+                                width: { ideal: 320 }, height: { ideal: 180 }, frameRate: { ideal: 20 }
                             },
                             audio: false
                         });
@@ -1293,7 +1293,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 const newConstraints = {
                     height: { ideal: parseInt(resolutionKey, 10) },
                     aspectRatio: 16 / 9,
-                    frameRate: 30, // Maintain frame rate
+                    frameRate: 24, // Maintain frame rate
                 };
 
                 console.log("Applying resolution constraints:", newConstraints);
