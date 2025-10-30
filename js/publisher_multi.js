@@ -793,189 +793,167 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         }
     });
     // Next Dual Camera mode. Best to combine with NDI Tools or OBS Virtual Cam RFC 
-async function startDualCamera() {
-  let originalStream = window.activeStream || null;
-  let camAStream = null, camBStream = null, canvasStream = null;
-  let stopLoop = false, rafId = 0, lastFrameTSA = 0;
+  async function startDualCamera() {
+        let originalStream = window.activeStream || null;
+        let canvasStream = null, camAStream = null, camBStream = null, rafId = 0;
 
-  const log = (...a) => console.log('[DualCam]', ...a);
-  const stopStream = s => { try { s && s.getTracks().forEach(t => t.stop()); } catch {} };
+        const stopStream = s => { try { s && s.getTracks().forEach(t => t.stop()); } catch { } };
+        const log = (...a) => console.log('[DualCam]', ...a);
 
-  const ensureVideoPlaying = async (v) => {
-    try {
-      v.muted = true; v.playsInline = true;
-      if (v.readyState < 2) await v.play().catch(()=>{});
-      if (v.paused) setTimeout(() => v.play().catch(()=>{}), 50);
-    } catch {}
-  };
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const cams = devices.filter(d => d.kind === 'videoinput');
+            if (cams.length < 1) { alert('No cameras available.'); return; }
 
-  // RVFC driver with rAF fallback
-  const drive = (driverVideo, drawFn) => {
-    const hasRVFC = typeof driverVideo.requestVideoFrameCallback === 'function';
-    if (hasRVFC) {
-      const step = (now, meta) => {
-        if (stopLoop) return;
-        lastFrameTSA = meta?.mediaTime || now;
-        drawFn();
-        driverVideo.requestVideoFrameCallback(step);
-      };
-      driverVideo.requestVideoFrameCallback(step);
-      return () => { stopLoop = true; };
-    } else {
-      const step = () => {
-        if (stopLoop) return;
-        drawFn();
-        rafId = requestAnimationFrame(step);
-      };
-      rafId = requestAnimationFrame(step);
-      return () => { stopLoop = true; try { cancelAnimationFrame(rafId); } catch {} };
+            // Determine primary (current active publishing video device if available)
+            const activeVid = window.millicastPublishUserMedia?.activeVideo;
+            const activeDevId = activeVid?.deviceId || null;
+            const primaryId = activeDevId || cams[0].deviceId;
+
+            // Determine PiP (user-chosen or auto-pick)
+            let pipId = (window.pipDeviceId && cams.some(c => c.deviceId === window.pipDeviceId))
+                ? window.pipDeviceId
+                : (cams.find(c => c.deviceId !== primaryId)?.deviceId || primaryId);
+
+            // ===== Open/Reuse Primary =====
+            // If our active stream is already from primaryId, REUSE it; don’t re-open.
+            const maybeActiveTrack = originalStream?.getVideoTracks?.()[0] || null;
+            const sameAsActive =
+                !!maybeActiveTrack &&
+                typeof maybeActiveTrack.getSettings === 'function' &&
+                (maybeActiveTrack.getSettings().deviceId === primaryId);
+
+            if (sameAsActive) {
+                // reuse the active stream
+                camAStream = new MediaStream([maybeActiveTrack]);
+                log('Primary uses existing active track.');
+            } else {
+                // stop any old local preview tracks that might be holding devices
+                try { originalStream?.getVideoTracks().forEach(t => t.stop()); } catch { }
+
+                // open primary camera fresh
+                try {
+                    camAStream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            deviceId: { exact: primaryId },
+                            width: { ideal: 1920, max: 3840 },
+                            height: { ideal: 1080, max: 2160 },
+                            frameRate: { ideal: 30, max: 60 },
+                            aspectRatio: 16 / 9
+                        },
+                        audio: false
+                    });
+                } catch (err) {
+                    if (err?.name === 'NotReadableError') {
+                        log('Primary NotReadableError; retrying smaller…', err);
+                        camAStream = await navigator.mediaDevices.getUserMedia({
+                            video: { deviceId: { exact: primaryId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+                            audio: false
+                        });
+                    } else {
+                        throw err;
+                    }
+                }
+            }
+
+            // ===== Open/Clone PiP =====
+            if (pipId === primaryId) {
+                // Same device → clone primary track
+                const primaryTrack = camAStream.getVideoTracks()[0];
+                const cloned = primaryTrack.clone();
+                camBStream = new MediaStream([cloned]);
+                log('PiP uses cloned track from primary.');
+            } else {
+                // different device → open downscaled
+                try {
+                    camBStream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            deviceId: { exact: pipId },
+                            width: { ideal: 640, max: 854 },
+                            height: { ideal: 360, max: 480 },
+                            frameRate: { ideal: 24, max: 30 }
+                        },
+                        audio: false
+                    });
+                } catch (err) {
+                    if (err?.name === 'NotReadableError' || err?.name === 'OverconstrainedError') {
+                        log('PiP error; retry smaller…', err);
+                        camBStream = await navigator.mediaDevices.getUserMedia({
+                            video: {
+                                deviceId: { exact: pipId },
+                                width: { ideal: 320 }, height: { ideal: 180 }, frameRate: { ideal: 24 }
+                            },
+                            audio: false
+                        });
+                    } else {
+                        throw err;
+                    }
+                }
+            }
+
+            // ===== Composite to canvas =====
+            const vA = document.createElement('video');
+            const vB = document.createElement('video');
+            [vA, vB].forEach(v => { v.muted = true; v.playsInline = true; v.autoplay = true; });
+            vA.srcObject = camAStream; vB.srcObject = camBStream;
+            await vA.play().catch(() => { }); await vB.play().catch(() => { });
+
+            let canvas = document.getElementById('compositeCanvas');
+            if (!canvas) { canvas = Object.assign(document.createElement('canvas'), { id: 'compositeCanvas', style: 'display:none' }); document.body.appendChild(canvas); }
+            const ctx = canvas.getContext('2d');
+
+            const aSet = camAStream.getVideoTracks()[0].getSettings?.() || {};
+            canvas.width = aSet.width || 1280;
+            canvas.height = Math.floor(canvas.width * 9 / 16);
+
+            const bSet = camBStream.getVideoTracks()[0].getSettings?.() || {};
+            const arB = (bSet.width && bSet.height) ? (bSet.width / bSet.height) : (16 / 9);
+            const pipW = Math.floor(canvas.width * 0.23);
+            const pipH = Math.floor(pipW / arB);
+            let overlayX = canvas.width - pipW - 22;
+            let overlayY = canvas.height - pipH - 22;
+
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(vA, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(vB, overlayX, overlayY, pipW, pipH);
+                ctx.lineWidth = 3; ctx.strokeStyle = '#fff';
+                ctx.strokeRect(overlayX, overlayY, pipW, pipH);
+                rafId = requestAnimationFrame(draw);
+            }
+            draw();
+
+            canvasStream = canvas.captureStream(30);
+            const vid = canvasStream.getVideoTracks()[0];
+
+            // keep your existing mic(s)
+            const oldAudio = originalStream?.getAudioTracks?.() || [];
+            let audioTrack = null;
+            if (typeof mixAudioTracks === 'function') {
+                audioTrack = await mixAudioTracks([], oldAudio);
+            } else {
+                audioTrack = oldAudio[0] || null;
+            }
+            const finalStream = new MediaStream(audioTrack ? [vid, audioTrack] : [vid]);
+
+            await replaceActiveStream(finalStream);
+            window.activeMediaSource = 'camera';
+
+            // Cleanup on track end
+            const cleanup = async () => {
+                try { cancelAnimationFrame(rafId); } catch { }
+                stopStream(camAStream); stopStream(camBStream);
+                try { await replaceActiveStream(originalStream); } catch { }
+            };
+            camAStream.getVideoTracks()[0].onended = cleanup;
+            camBStream.getVideoTracks()[0].onended = cleanup;
+
+        } catch (err) {
+            console.error('startDualCamera error:', err);
+            try { cancelAnimationFrame(rafId); } catch { }
+            try { stopStream(camAStream); stopStream(camBStream); } catch { }
+        }
     }
-  };
-
-  try {
-    // Choose devices
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cams = devices.filter(d => d.kind === 'videoinput');
-    if (!cams.length) { alert('No cameras available.'); return; }
-
-    const activeTrack = originalStream?.getVideoTracks?.()[0] || null;
-    const activeDevId = (activeTrack && activeTrack.getSettings) ? activeTrack.getSettings().deviceId : null;
-    const primaryId = (window.millicastPublishUserMedia?.activeVideo?.deviceId) || activeDevId || cams[0].deviceId;
-
-    let pipId = (window.pipDeviceId && cams.some(c => c.deviceId === window.pipDeviceId))
-      ? window.pipDeviceId
-      : (cams.find(c => c.deviceId !== primaryId)?.deviceId || primaryId);
-
-    // Open/reuse primary at 1280x720
-    if (activeTrack && activeDevId === primaryId) {
-      camAStream = new MediaStream([activeTrack]);
-      log('Primary uses existing active track.');
-    } else {
-      try {
-        camAStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: { exact: primaryId },
-            width: { ideal: 1280, max: 1280 },
-            height: { ideal: 720,  max: 720 },
-            frameRate: { ideal: 30,  max: 30 },
-            aspectRatio: 16 / 9
-          },
-          audio: false
-        });
-      } catch (e) {
-        log('Primary fallback → 960x540', e);
-        camAStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: { exact: primaryId },
-            width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 30 }
-          },
-          audio: false
-        });
-      }
-    }
-
-    // Open/clone PiP ~480x270
-    if (pipId === primaryId) {
-      const cloned = camAStream.getVideoTracks()[0].clone();
-      camBStream = new MediaStream([cloned]);
-      log('PiP uses cloned primary track.');
-    } else {
-      try {
-        camBStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: { exact: pipId },
-            width: { ideal: 480, max: 640 },
-            height: { ideal: 270, max: 360 },
-            frameRate: { ideal: 24, max: 30 }
-          },
-          audio: false
-        });
-      } catch (e) {
-        log('PiP fallback → 360x202', e);
-        camBStream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: pipId }, width: { ideal: 360 }, height: { ideal: 202 }, frameRate: { ideal: 24 } },
-          audio: false
-        });
-      }
-    }
-
-    // Backing videos + canvas
-    const vA = document.createElement('video');
-    const vB = document.createElement('video');
-    vA.srcObject = camAStream; vB.srcObject = camBStream;
-    await ensureVideoPlaying(vA); await ensureVideoPlaying(vB);
-
-    let canvas = document.getElementById('compositeCanvas');
-    if (!canvas) {
-      canvas = document.createElement('canvas');
-      canvas.id = 'compositeCanvas';
-      canvas.style.display = 'none';
-      document.body.appendChild(canvas);
-    }
-    const ctx = canvas.getContext('2d');
-
-    const aSet = camAStream.getVideoTracks()[0].getSettings?.() || {};
-    canvas.width  = 1280; // lock to 720p canvas regardless of camera quirk
-    canvas.height = 720;
-
-    const bSet = camBStream.getVideoTracks()[0].getSettings?.() || {};
-    const arB  = (bSet.width && bSet.height) ? (bSet.width / bSet.height) : (16/9);
-    const pipW = Math.floor(canvas.width * 0.25); // ~320
-    const pipH = Math.floor(pipW / arB);
-    let overlayX = canvas.width - pipW - 20;
-    let overlayY = canvas.height - pipH - 20;
-
-    // draw
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(vA, 0, 0, canvas.width, canvas.height);
-      ctx.drawImage(vB, overlayX, overlayY, pipW, pipH);
-      ctx.lineWidth = 2; ctx.strokeStyle = '#fff';
-      ctx.strokeRect(overlayX, overlayY, pipW, pipH);
-    };
-    const stopDriver = drive(vA, draw);
-
-    // capture AFTER frames flow; hint encoder
-    canvasStream = canvas.captureStream(30);
-    const videoTrack = canvasStream.getVideoTracks()[0];
-    if (videoTrack && 'contentHint' in videoTrack) videoTrack.contentHint = 'motion';
-
-    // keep existing mic
-    const oldAudio = originalStream?.getAudioTracks?.() || [];
-    const mic = oldAudio[0] || null;
-    const out = new MediaStream(mic ? [videoTrack, mic] : [videoTrack]);
-
-    // publish the new composite
-    await replaceActiveStream(out);
-    // apply ~3Mbps on the sender (after we swapped tracks)
-    await applyVideoBitrateKbps(3000, { degradationPreference: 'maintain-framerate' });
-
-    window.activeMediaSource = 'camera';
-
-    // cleanup
-    const cleanup = async () => {
-      stopLoop = true;
-      try { stopDriver && stopDriver(); } catch {}
-      try { cancelAnimationFrame(rafId); } catch {}
-      stopStream(camAStream); stopStream(camBStream);
-      try { await replaceActiveStream(originalStream); } catch {}
-    };
-    camAStream.getVideoTracks()[0].onended = cleanup;
-    camBStream.getVideoTracks()[0].onended = cleanup;
-
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        ensureVideoPlaying(vA); ensureVideoPlaying(vB);
-      }
-    }, { passive: true });
-
-  } catch (err) {
-    console.error('startDualCamera error:', err);
-    stopLoop = true;
-    try { cancelAnimationFrame(rafId); } catch {}
-    stopStream(camAStream); stopStream(camBStream);
-  }
-}
 
     let selectedSimulcastBtn = document.querySelector('#simulcastMenuButton');
     let simulcast = false;
