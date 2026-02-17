@@ -68,6 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 //COMBO for screen share WEBINAR GAME CAPTURE
 
+
 document.addEventListener("DOMContentLoaded", async () => {
     const sourceIdInput = document.getElementById('sourceId'); // Ensure this is defined after DOM is loaded
 
@@ -174,7 +175,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         });
     };
 
-    // Mobile Orientation
+    //Mobile Orientation
     function handleOrientation() {
         let el = document.querySelector(".turnDeviceNotification");
         let elW = document.querySelector(".turnDeviceNotification.notification-margin-top");
@@ -249,7 +250,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             adjustVideoOnLoad();
         });
     }
-    // Millicast Auth
+    /////////////////////////
     const tokenGenerator = () => {
         const sourceIdInput = document.getElementById('sourceId');
         const sourceIdValue = sourceIdInput?.value.trim() || null;
@@ -278,8 +279,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         '240': 250, // 250 Kbps
         '360': 400, // 400 Kbps
         '480': 450, // 450 Kbps
-        '540': 600, // 700 Kbps
-        '640': 800, // 100 Kbps
+        '540': 600, // 600 Kbps
+        '640': 800, // 800 Kbps
         '720': 2000, // 2000 Kbps
         '1080': 6000, // 4000 Kbps
         '1440': 8000, // 8000 Kbps
@@ -376,6 +377,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
     //StreamID and Publishing Token
 
+
     document.getElementById('applyStreamConfig').addEventListener('click', () => {
         const sid = document.getElementById('streamIdInput').value.trim();
         const tok = document.getElementById('tokenInput').value.trim();
@@ -416,6 +418,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
 
     // Screen sharing logic with proper integration
+
 
     let isScreenSharing = false;
     let originalStream = null;
@@ -500,7 +503,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     video: {
                         width: { ideal: 640, max: 854 },
                         height: { ideal: 360, max: 480 },
-                        frameRate: { ideal: 20, max: 30 }
+                        frameRate: { ideal: 24, max: 30 }
                     },
                     audio: false
                 });
@@ -657,25 +660,25 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             const originalStream = activeStream;
             const oldAudio = (originalStream && originalStream.getAudioTracks()) || [];
 
-            // get main CAMERA (no audio here — we’ll reuse/mix mic separately)
+            // 1) get main CAMERA (no audio here — we’ll reuse/mix mic separately)
             cameraStream = await navigator.mediaDevices.getUserMedia({
                 video: {
-                    width: { ideal: 1280, max: 3840 },
-                    height: { ideal: 720, max: 2160 },
-                    frameRate: { ideal: 24, max: 60 },
+                    width: { ideal: 1920, max: 3840 },
+                    height: { ideal: 1080, max: 2160 },
+                    frameRate: { ideal: 30, max: 60 },
                     aspectRatio: 16 / 9
                 },
                 audio: false
             });
 
-            // get SCREEN with audio if available
+            // 2) get SCREEN with audio if available
             screenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: true,
                 audio: true      // Chrome tab/system audio when granted
             });
             const screenAudio = screenStream.getAudioTracks();
 
-            // render both to hidden videos (you already use these IDs elsewhere)
+            // 3) render both to hidden videos (you already use these IDs elsewhere)
             const camVid = document.getElementById('cameraVideo');
             const screenVid = document.getElementById('screenVideo');
             camVid.srcObject = cameraStream;
@@ -683,7 +686,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             await camVid.play().catch(() => { });
             await screenVid.play().catch(() => { });
 
-            // setup a canvas using CAMERA as the base (16:9)
+            // 4) setup a canvas using CAMERA as the base (16:9)
             const canvas = document.getElementById('compositeCanvas');
             const ctx = canvas.getContext('2d');
 
@@ -737,7 +740,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 }
             });
 
-            // draw loop: camera full frame + screen PiP
+            // 5) draw loop: camera full frame + screen PiP
             function drawComposite() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 // base = CAMERA
@@ -751,21 +754,21 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             }
             drawComposite();
 
-            // capture canvas as our video
+            // 6) capture canvas as our video
             canvasStream = canvas.captureStream(30);
             const videoTracks = canvasStream.getVideoTracks();
 
-            // mix audio: keep old mic + add screen audio (if permitted)
+            // 7) mix audio: keep old mic + add screen audio (if permitted)
             const mixedAudioTrack = await mixAudioTracks(screenAudio, oldAudio);
 
-            // build + publish
+            // 8) build + publish
             const newStream = new MediaStream([...videoTracks, mixedAudioTrack]);
             await replaceActiveStream(newStream);
             activeMediaSource = 'camera'; // base is camera
             isScreenSharing = true;
             showBanner?.(); // if you show a banner
 
-            // cleanup when screen stops
+            // 9) cleanup when screen stops
             screenCleanup = async () => {
                 cancelAnimationFrame(compositeAnimation);
                 [screenStream, cameraStream].forEach(s => s && s.getTracks().forEach(t => t.stop()));
@@ -792,8 +795,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             btn.__wired = true;
         }
     });
-    // Next Dual Camera mode. Best to combine with NDI Tools or OBS Virtual Cam RFC 
-  async function startDualCamera() {
+    /// Next Dual Camera
+    async function startDualCamera() {
         let originalStream = window.activeStream || null;
         let canvasStream = null, camAStream = null, camBStream = null, rafId = 0;
 
@@ -955,6 +958,9 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         }
     }
 
+
+    //END 
+
     let selectedSimulcastBtn = document.querySelector('#simulcastMenuButton');
     let simulcast = false;
 
@@ -1110,7 +1116,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         }
     };
 
-    // Set Video Codec H265 availbe on Chrome now BEST Options!!!
+    // Set Video Codec H265 availbe on Chrome now
     const onSetVideoCodec = async (evt) => {
         selectedCodecBtn.disabled = true;
         codec = evt.target.dataset.codec;
@@ -1292,7 +1298,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 const newConstraints = {
                     height: { ideal: parseInt(resolutionKey, 10) },
                     aspectRatio: 16 / 9,
-                    frameRate: 24, // Maintain frame rate
+                    frameRate: 30, // Maintain frame rate
                 };
 
                 console.log("Applying resolution constraints:", newConstraints);
@@ -1316,7 +1322,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
     // Ensure the checkbox is properly referenced and initialized
     // Ensure then it can only be applied to VP8/h264 with a minimum 5000 Kbps.
-    // only works on h264 and vp8 at this point!!!
+    //only working on h264 and vp8 at this point
     const simulcastCheckbox = document.getElementById('simulcastCheckbox');
 
     if (!simulcastCheckbox) {
@@ -1857,7 +1863,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             }
         }
 
-        //Update the Mic Drop Down
+        //Update the 
         function updateMicDropdownUI(selectedId) {
             document.querySelectorAll('#micsList .dropdown-item').forEach(item => {
                 if (item.id === selectedId) {
