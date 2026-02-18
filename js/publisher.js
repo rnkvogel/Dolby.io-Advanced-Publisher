@@ -456,15 +456,6 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         }
     }
 
-    
-
-    //  wire up buttons once DOM is ready 
-    document.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('screenShareOnly')
-            .addEventListener('click', () => startScreenShare('screenOnly'));
-        document.getElementById('screenCameraComposite')
-            .addEventListener('click', () => startScreenShare('composite'));
-    });
     // Need to stop screen share properly to go back to default camera
      let screenCleanup = null;
 
