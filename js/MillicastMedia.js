@@ -19,7 +19,9 @@ export default class MillicastMedia {
     this.constraints = {
       audio: {
         echoCancellation: true,
-        channelCount: { ideal: 2 },
+        //channelCount: { ideal: 2 }, 
+        channelCount: { ideal: 6 }, //test mapping multichannel audio device. 
+        sampleRate: 48000
       },
       video: true ,
 
