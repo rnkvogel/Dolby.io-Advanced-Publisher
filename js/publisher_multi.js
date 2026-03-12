@@ -1540,7 +1540,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         let a = true;
         if (!disableStereo) {
             a = {
-                channelCount: { ideal: 2 },
+                channelCount: { ideal: 6 },
                 echoCancellation: true
             }
         }
