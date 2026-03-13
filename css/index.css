@@ -446,7 +446,7 @@ video{
 #cogButton {
     position: absolute;
     top: 10px;
-    right: 10px;
+    right: -96%;
     width: 32px;
     height: 32px;
     cursor: pointer;
@@ -695,7 +695,7 @@ canvas#availBitrateOverlay {
 #statsOverlay {
   position: absolute;
   top: 58px;
-  left: 20px;
+  left: 10px;
   right: auto;
   width: 250px;
   min-height: 72px;
