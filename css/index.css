@@ -444,7 +444,7 @@ video{
   }
 }
 #cogButton {
-    position: absolute;
+    position: fixed;
     top: 10px;
     right: -96%;
     width: 32px;
