@@ -1,4 +1,4 @@
-//v1.3.33.3
+//v1.3.33.35
 import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
 const Director = millicast.Director
 const Logger = millicast.Logger
@@ -20,7 +20,7 @@ let isStopping = false;
 let isRecording = false;
 let startWithRecord = true;
 let canRecordToken = false;
-window.__blockAutoStart = false;  // <â€” single, global
+window.__blockAutoStart = false;  // <— single, global
 
 if (streamIdParam) {
     const parts = streamIdParam.split('/');
@@ -442,10 +442,10 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             const aTrack = stream.getAudioTracks()[0];
 
             await peer.replaceTrack(vTrack);
-            console.log('âœ… Video replaced');
+            console.log('✅ Video replaced');
             if (aTrack) {
                 await peer.replaceTrack(aTrack);
-                console.log('âœ… Audio replaced');
+                console.log('✅ Audio replaced');
             }
         }
     }
@@ -453,7 +453,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
   
     // full startScreenShare implementation
     async function startScreenShare(mode) {
-        // ðŸ”’ Global lock shared across BOTH files
+        // 🔒 Global lock shared across BOTH files
         if (window.__mc_displayPickerLock) {
             console.warn('Screen-share already in progress; ignoring extra request.');
             return window.__mc_displayPickerLock;
@@ -479,7 +479,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     controller,
                     video: {
                         selfBrowserSurface: 'exclude',   // hide the publisher tab
-                        surfaceSwitching: 'include'      // allow â€œChangeâ€ later without new prompt
+                        surfaceSwitching: 'include'      // allow “Change” later without new prompt
                     },
                     audio: {
                         systemAudio: 'include',
@@ -514,7 +514,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     await screenVid.play().catch(() => { });
                     await camVid.play().catch(() => { });
 
-                    // canvas at 16:9 using the screenâ€™s width
+                    // canvas at 16:9 using the screen’s width
                     const canvas = document.getElementById('compositeCanvas');
                     const ctx = canvas.getContext('2d');
                     const s = screenStream.getVideoTracks()[0].getSettings();
@@ -642,7 +642,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             const originalStream = activeStream;
             const oldAudio = (originalStream && originalStream.getAudioTracks()) || [];
 
-            // 1) get main CAMERA (no audio here â€” weâ€™ll reuse/mix mic separately)
+            // 1) get main CAMERA (no audio here — we’ll reuse/mix mic separately)
             cameraStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     width: { ideal: 1920, max: 3840 },
@@ -684,7 +684,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             const pipW = Math.floor(canvas.width * 0.23);
             const pipH = Math.floor(pipW / scrAR);
 
-            // default PiP position (bottom-right); honor window.pipCorner if youâ€™re using it
+            // default PiP position (bottom-right); honor window.pipCorner if you’re using it
             const corner = (window.pipCorner || 'br').toLowerCase(); // 'tl','tr','bl','br'
             let overlayX = (corner.includes('r')) ? (canvas.width - pipW - 22) : 22;
             let overlayY = (corner.includes('b')) ? (canvas.height - pipH - 22) : 22;
@@ -794,7 +794,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 : (cams.find(c => c.deviceId !== primaryId)?.deviceId || primaryId);
 
             // ===== Open/Reuse Primary =====
-            // If our active stream is already from primaryId, REUSE it; donâ€™t re-open.
+            // If our active stream is already from primaryId, REUSE it; don’t re-open.
             const maybeActiveTrack = originalStream?.getVideoTracks?.()[0] || null;
             const sameAsActive =
                 !!maybeActiveTrack &&
@@ -823,7 +823,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     });
                 } catch (err) {
                     if (err?.name === 'NotReadableError') {
-                        log('Primary NotReadableError; retrying smallerâ€¦', err);
+                        log('Primary NotReadableError; retrying smaller…', err);
                         camAStream = await navigator.mediaDevices.getUserMedia({
                             video: { deviceId: { exact: primaryId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
                             audio: false
@@ -836,13 +836,13 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
             // ===== Open/Clone PiP =====
             if (pipId === primaryId) {
-                // Same device â†’ clone primary track
+                // Same device → clone primary track
                 const primaryTrack = camAStream.getVideoTracks()[0];
                 const cloned = primaryTrack.clone();
                 camBStream = new MediaStream([cloned]);
                 log('PiP uses cloned track from primary.');
             } else {
-                // different device â†’ open downscaled
+                // different device → open downscaled
                 try {
                     camBStream = await navigator.mediaDevices.getUserMedia({
                         video: {
@@ -855,7 +855,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     });
                 } catch (err) {
                     if (err?.name === 'NotReadableError' || err?.name === 'OverconstrainedError') {
-                        log('PiP error; retry smallerâ€¦', err);
+                        log('PiP error; retry smaller…', err);
                         camBStream = await navigator.mediaDevices.getUserMedia({
                             video: {
                                 deviceId: { exact: pipId },
@@ -983,7 +983,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             if (millicastPublishUserMedia.isActive()) {
                 console.log(`Updating bitrate to: ${bandwidth} kbps (Live Stream Active)`);
 
-                // âœ… Use Millicastâ€™s updateBitrate() API
+                // ✅ Use Millicast’s updateBitrate() API
                 await peerConnection.updateBitrate(bandwidth);
                 console.log(`Millicast API: Bitrate updated to ${bandwidth} kbps.`);
             } else {
@@ -1054,7 +1054,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             selectedFpsBtn.innerHTML = `${fps} FPS`;
 
             const updated = videoTrack.getSettings();
-            console.log(`âœ… Frame rate applied: ${updated.frameRate} FPS`, updated);
+            console.log(`✅ Frame rate applied: ${updated.frameRate} FPS`, updated);
         } catch (error) {
             console.error("Failed to update frame rate:", error);
         } finally {
@@ -1339,14 +1339,14 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         const audioTrack = audioTracks[0]; // Get the first audio track
         const settings = audioTrack.getSettings();
      //Debug Audio
-        console.log("ðŸŽ¤ Audio Track Information:");
-        console.log(`  ðŸ”¹ ID: ${audioTrack.id}`);
-        console.log(`  ðŸ”¹ Sample Rate: ${settings.sampleRate || "Unknown"} Hz`);
-        console.log(`  ðŸ”¹ Channel Count: ${settings.channelCount || "Unknown"} ðŸŽ§`);  // Key log
-        console.log(`  ðŸ”¹ Latency: ${settings.latency || "Unknown"} seconds`);
-        console.log(`  ðŸ”¹ Echo Cancellation: ${settings.echoCancellation ? "âœ… Enabled" : "âŒ Disabled"}`);
-        console.log(`  ðŸ”¹ Auto Gain Control: ${settings.autoGainControl ? "âœ… Enabled" : "âŒ Disabled"}`);
-        console.log(`  ðŸ”¹ Noise Suppression: ${settings.noiseSuppression ? "âœ… Enabled" : "âŒ Disabled"}`);
+        console.log("🎤 Audio Track Information:");
+        console.log(`  🔹 ID: ${audioTrack.id}`);
+        console.log(`  🔹 Sample Rate: ${settings.sampleRate || "Unknown"} Hz`);
+        console.log(`  🔹 Channel Count: ${settings.channelCount || "Unknown"} 🎧`);  // Key log
+        console.log(`  🔹 Latency: ${settings.latency || "Unknown"} seconds`);
+        console.log(`  🔹 Echo Cancellation: ${settings.echoCancellation ? "✅ Enabled" : "❌ Disabled"}`);
+        console.log(`  🔹 Auto Gain Control: ${settings.autoGainControl ? "✅ Enabled" : "❌ Disabled"}`);
+        console.log(`  🔹 Noise Suppression: ${settings.noiseSuppression ? "✅ Enabled" : "❌ Disabled"}`);
     }
 
     // Call this function after stream is initialized
@@ -1454,7 +1454,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             console.error(err);
         }
 
-        console.log("ðŸ›‘ Stopping broadcast...");
+        console.log("🛑 Stopping broadcast...");
 
         camMuteBtn.addEventListener('click', (e) => {
             if (millicastPublishUserMedia.muteMedia('video', !isVideoMuted)) {
@@ -1486,7 +1486,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             const item = document.createElement('button');
             const label = device.label || 'Microphone';
             const isLoopback = /mix|loopback|blackhole|vb-audio/i.test(label);
-            item.innerHTML = isLoopback ? `ðŸŽ§ ${label}` : label;
+            item.innerHTML = isLoopback ? `🎧 ${label}` : label;
             item.classList = 'dropdown-item use-hand';
             item.id = device.deviceId;
             micsList.appendChild(item);
@@ -1494,7 +1494,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
         // Inject processed speaker audio option
         const processedSpeakerItem = document.createElement('button');
-        processedSpeakerItem.innerHTML = 'ðŸŽ§ Processed Speaker Audio';
+        processedSpeakerItem.innerHTML = '🎧 Processed Speaker Audio';
         processedSpeakerItem.classList = 'dropdown-item use-hand';
         processedSpeakerItem.id = 'virtualProcessedSpeaker';
         micsList.appendChild(processedSpeakerItem);
@@ -1530,19 +1530,19 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                         const audioSender = senders.find(sender => sender.track?.kind === 'audio');
                         if (audioSender) {
                             await audioSender.replaceTrack(processedTrack);
-                            console.log("âœ… Replaced audio track with Web Audio processed stream (onConnected)");
+                            console.log("✅ Replaced audio track with Web Audio processed stream (onConnected)");
                         } else {
-                            console.warn("âš ï¸ No audio sender found to replace (onConnected)");
+                            console.warn("⚠️ No audio sender found to replace (onConnected)");
                         }
                     };
 
                     const audioTabItem = document.createElement('button');
-                    audioTabItem.innerHTML = `ðŸŽ§ ${screenAudio.label || 'Tab Audio Active'}`;
+                    audioTabItem.innerHTML = `🎧 ${screenAudio.label || 'Tab Audio Active'}`;
                     audioTabItem.classList = 'dropdown-item disabled';
                     audioTabItem.id = 'audioTab';
                     micsList.appendChild(audioTabItem);
                 } catch (err) {
-                    console.error('âŒ Failed to route tab audio through Web Audio API:', err);
+                    console.error('❌ Failed to route tab audio through Web Audio API:', err);
                 }
             }
         }
@@ -1560,7 +1560,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 const item = document.createElement('button');
                 const label = device.label || 'Microphone';
                 const isLoopback = /mix|loopback|blackhole|vb-audio/i.test(label);
-                item.innerHTML = isLoopback ? `ðŸŽ§ ${label}` : label;
+                item.innerHTML = isLoopback ? `🎧 ${label}` : label;
                 item.classList = 'dropdown-item use-hand';
                 item.id = device.deviceId;
                 micsList.appendChild(item);
@@ -1575,7 +1575,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         if (!audioTracks.length || audioTracks.every(t => t.readyState !== 'live')) {
             const item = document.createElement('div');
             item.classList = 'dropdown-item disabled';
-            item.innerText = 'âš ï¸ No audio track detected or audio is muted.';
+            item.innerText = '⚠️ No audio track detected or audio is muted.';
             micsList.appendChild(item);
         }
 
@@ -1607,18 +1607,18 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
                     if (audioSender) {
                         await audioSender.replaceTrack(newAudioTrack);
-                        console.log("âœ… Replaced audio track in WebRTC sender");
+                        console.log("✅ Replaced audio track in WebRTC sender");
                     } else {
-                        console.warn("âš ï¸ No audio sender found in WebRTC peer.");
+                        console.warn("⚠️ No audio sender found in WebRTC peer.");
                     }
                 } else {
-                    console.warn("âš ï¸ webRTCPeer.getSenders not available yet; audio will be active on next connect.");
+                    console.warn("⚠️ webRTCPeer.getSenders not available yet; audio will be active on next connect.");
                 }
 
                 // Log tracks for debug
-                console.log("ðŸ”Š Now publishing tracks:", newStream.getTracks().map(t => t.kind + ":" + t.label));
+                console.log("🔊 Now publishing tracks:", newStream.getTracks().map(t => t.kind + ":" + t.label));
             } catch (err) {
-                console.error('âŒ Failed to replace audio track:', err);
+                console.error('❌ Failed to replace audio track:', err);
             }
         }
 
@@ -1630,7 +1630,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
             const deviceId = btn.id;
 
-            // 1) â€œProcessed Speaker Audioâ€ special case
+            // 1) “Processed Speaker Audio” special case
             if (deviceId === 'virtualProcessedSpeaker') {
                 const screenAudio = activeStream.getAudioTracks().find(t => {
                     const l = (t.label || '').toLowerCase();
@@ -1647,7 +1647,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                     const processed = dest.stream.getAudioTracks()[0];
                     await swapAudioTrack(processed, deviceId);
                 } catch (err) {
-                    console.error('âŒ Failed to route tab audio:', err);
+                    console.error('❌ Failed to route tab audio:', err);
                 }
                 return;
             }
@@ -1663,7 +1663,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
                 await swapAudioTrack(newAudioTrack, deviceId);
             } catch (err) {
-                console.error('âŒ Switching mic failed:', err);
+                console.error('❌ Switching mic failed:', err);
             }
         });
 
@@ -1683,9 +1683,9 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             const peer = millicastPublishUserMedia.webRTCPeer;
             if (millicastPublishUserMedia.isActive() && peer && typeof peer.replaceTrack === 'function') {
                 await peer.replaceTrack(newAudioTrack);
-                console.log('âœ… Live audio track replaced');
+                console.log('✅ Live audio track replaced');
             } else {
-                console.warn('âš ï¸ replaceTrack() not available; audio will update on reconnect');
+                console.warn('⚠️ replaceTrack() not available; audio will update on reconnect');
             }
 
             // highlight UI
@@ -1693,7 +1693,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             displayActiveDevice('mic');
         }
 
-        // updateMicDropdownUI() â€” it already toggles the â€œactiveâ€ class on the selected button
+        // updateMicDropdownUI() — it already toggles the “active” class on the selected button
 
         async function replaceMic(deviceId) {
             // stop and drop old audio
@@ -1715,15 +1715,15 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             activeStream = merged;
             millicastPublishUserMedia.mediaManager.mediaStream = merged;
 
-            // liveâ€replace the audio sender
+            // live‐replace the audio sender
             const audioSender = millicastPublishUserMedia.webRTCPeer
                 .getSenders()
                 .find(s => s.track.kind === 'audio');
             if (audioSender) {
                 await audioSender.replaceTrack(newAudioTrack);
-                console.log('âœ… Audio track replaced live');
+                console.log('✅ Audio track replaced live');
             } else {
-                console.warn('âš ï¸ No audio sender found; will publish on next connect');
+                console.warn('⚠️ No audio sender found; will publish on next connect');
             }
         }
         //Update the Mic
@@ -1746,7 +1746,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         const cams = data.videoinput || [];
         cams.forEach(device => {
             const item = document.createElement('button');
-            item.innerHTML = `ðŸ“· ${device.label || 'Camera'}`;
+            item.innerHTML = `📷 ${device.label || 'Camera'}`;
             item.className = 'dropdown-item use-hand';
             item.id = device.deviceId;
             camsList.appendChild(item);
@@ -1754,27 +1754,27 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
         // Add both screen share options:
         const screenShareItem = document.createElement('button');
-        screenShareItem.innerHTML = 'ðŸ–¥ï¸ Screen Share';
+        screenShareItem.innerHTML = '🖥️ Screen Share';
         screenShareItem.className = 'dropdown-item use-hand';
         screenShareItem.id = 'screenShareOnly';
         camsList.appendChild(screenShareItem);
 
         const screenCameraCompositeItem = document.createElement('button');
-        screenCameraCompositeItem.innerHTML = 'ðŸ–¥ï¸ ðŸŽ¥ Screen + Camera Overlay';
+        screenCameraCompositeItem.innerHTML = '🖥️ 🎥 Screen + Camera Overlay';
         screenCameraCompositeItem.className = 'dropdown-item use-hand';
         screenCameraCompositeItem.id = 'screenCameraComposite';
         camsList.appendChild(screenCameraCompositeItem);
 
         // NEW: Camera + Screen (camera full, screen PiP)
         const cameraScreenCompositeItem = document.createElement('button');
-        cameraScreenCompositeItem.innerHTML = 'ðŸŽ¥ ðŸ–¥ï¸ Camera + Screen';
+        cameraScreenCompositeItem.innerHTML = '🎥 🖥️ Camera + Screen';
         cameraScreenCompositeItem.className = 'dropdown-item use-hand';
         cameraScreenCompositeItem.id = 'cameraScreenComposite';
         camsList.appendChild(cameraScreenCompositeItem);
 
         // NEW: Dual Camera (primary full, secondary PiP)
         const dualCamItem = document.createElement('button');
-        dualCamItem.innerHTML = 'ðŸŽ¥ðŸŽ¥ Dual Camera';
+        dualCamItem.innerHTML = '🎥🎥 Dual Camera';
         dualCamItem.className = 'dropdown-item use-hand';
         dualCamItem.id = 'dualCamBtn';
         camsList.appendChild(dualCamItem);
@@ -1786,14 +1786,14 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
         const pipHdr = document.createElement('div');
         pipHdr.className = 'dropdown-item disabled';
-        pipHdr.textContent = 'â€” PiP (small camera) â€”';
+        pipHdr.textContent = '— PiP (small camera) —';
         camsList.appendChild(pipHdr);
 
         cams.forEach(device => {
             const pipBtn = document.createElement('button');
             pipBtn.className = 'dropdown-item use-hand pip-choice';
             pipBtn.setAttribute('data-device-id', device.deviceId);
-            pipBtn.textContent = `ðŸ“Œ ${device.label || 'Camera'}`;
+            pipBtn.textContent = `📌 ${device.label || 'Camera'}`;
             camsList.appendChild(pipBtn);
         });
 
@@ -1825,28 +1825,28 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
             // Special virtual options
             if (target.id === 'screenShareOnly') {
-                console.log('Switching to screen share (screen only)â€¦');
+                console.log('Switching to screen share (screen only)…');
                 updateDropdownUI('Screen Share Only');
                 await window.startScreenShare('screenOnly');
                 return;
             }
 
             if (target.id === 'screenCameraComposite') {
-                console.log('Switching to screen share + camera overlayâ€¦');
+                console.log('Switching to screen share + camera overlay…');
                 updateDropdownUI('Screen + Camera Overlay');
                 await window.startScreenShare('composite');
                 return;
             }
 
             if (target.id === 'cameraScreenComposite') {
-                console.log('Camera + Screen (PiP)â€¦');
+                console.log('Camera + Screen (PiP)…');
                 updateDropdownUI('Camera + Screen (PiP)');
                 await window.startCameraPlusScreen();  // uses window.pipDeviceId
                 return;
             }
 
             if (target.id === 'dualCamBtn') {
-                console.log('Dual Camera (PiP)â€¦');
+                console.log('Dual Camera (PiP)…');
                 updateDropdownUI('Dual Camera (PiP)');
                 await window.startDualCamera();        // uses window.pipDeviceId
                 return;
@@ -1871,7 +1871,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             if (activeStream) activeStream.getTracks().forEach(t => t.stop());
 
             // strip leading icon from the label if present
-            const labelText = target.textContent.replace(/^ðŸ“·\s*/, '');
+            const labelText = target.textContent.replace(/^📷\s*/, '');
             updateDropdownUI(labelText);
 
             const cameraStream = await millicastPublishUserMedia.updateMediaStream('video', target.id);
@@ -2003,10 +2003,10 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             }
             try { updateDropdownUI(label); } catch { }
 
-            console.log(`âœ… Camera initialized at: ${set.width || '?'}x${set.height || '?'} @ ${set.frameRate || '?'}fps`);
+            console.log(`✅ Camera initialized at: ${set.width || '?'}x${set.height || '?'} @ ${set.frameRate || '?'}fps`);
 
             if ((set.width && set.width <= 640) || (set.height && set.height <= 480)) {
-                console.warn('âš ï¸ Low resolution detected. Chrome may have defaulted to fallback settings.');
+                console.warn('⚠️ Low resolution detected. Chrome may have defaulted to fallback settings.');
                 try { showResLockAlert?.(label); } catch { }
             } else {
                 try { hideResLockAlert?.(); } catch { }
@@ -2050,7 +2050,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             const raised = await pushTrackUp(v);
 
             if (!raised) {
-                // still clamped â€” fully reopen and push again
+                // still clamped — fully reopen and push again
                 try { stream.getTracks().forEach(t => t.stop()); } catch { }
                 await wait(220);
                 stream = await hardReopen(target.deviceId);
@@ -2058,13 +2058,13 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
             commitStream(stream, target.label || 'Camera');
         } catch (err) {
-            console.error('âŒ Failed to initialize camera:', err);
-            // last resort: default camera so preview isnâ€™t blank
+            console.error('❌ Failed to initialize camera:', err);
+            // last resort: default camera so preview isn’t blank
             try {
                 const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 commitStream(s, target?.label || 'Camera');
             } catch (e2) {
-                console.error('âŒ Could not open even default camera:', e2);
+                console.error('❌ Could not open even default camera:', e2);
             }
         }
     });
@@ -2083,8 +2083,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             return;
         }
 
-        // Normalize current source â†’ label (fallback if caller didnâ€™t pass one)
-        // Expect activeMediaSource âˆˆ {'camera','screen','screenOnly','composite'}.
+        // Normalize current source → label (fallback if caller didn’t pass one)
+        // Expect activeMediaSource ∈ {'camera','screen','screenOnly','composite'}.
         const source = (typeof activeMediaSource === 'string') ? activeMediaSource : '';
         const inferredLabel =
             source === 'composite' ? 'Screen + Camera Overlay' :
@@ -2229,7 +2229,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         try {
             if (!window.isBroadcasting) {
                 // START
-                console.log('[PUB] startingâ€¦');
+                console.log('[PUB] starting…');
                 await BroadcastMillicastStream();
 
                 // BroadcastMillicastStream should set window.isBroadcasting on success,
@@ -2244,13 +2244,13 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 }
             } else {
                 // STOP
-                console.log('[PUB] stoppingâ€¦');
+                console.log('[PUB] stopping…');
                 if (typeof safeStopPublish === 'function') {
                     await safeStopPublish();
                 } else if (pub && typeof pub.stop === 'function') {
                     await pub.stop();
                     window.isBroadcasting = false;
-                    console.log('â›” Publish stopped (direct stop)');
+                    console.log('⛔ Publish stopped (direct stop)');
                 } else {
                     console.warn('[PUB] no stop() available on publisher');
                 }
@@ -2278,7 +2278,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
     async function getUserMediaRobust(preferredConstraints) {
         const tryOnce = async (c) => {
             const stream = await navigator.mediaDevices.getUserMedia(c);
-            // Apply any â€œexactâ€/high constraints AFTER we have a track (Edge is happier)
+            // Apply any “exact”/high constraints AFTER we have a track (Edge is happier)
             const v = stream.getVideoTracks()[0];
             if (v && preferredConstraints?.video && typeof v.applyConstraints === 'function') {
                 try { await v.applyConstraints(preferredConstraints.video); } catch (_) { }
@@ -2339,7 +2339,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         if (state === 'stop') btn.classList.add('record-stop');
     }
 
-    // Show disabled â€œarmedâ€ pill pre-publish if the token/session allows recording
+    // Show disabled “armed” pill pre-publish if the token/session allows recording
     function showPrePublishRecordArmed() {
         const btn = document.getElementById('recordBtn');
         if (!btn) return;
@@ -2483,14 +2483,14 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
             try {
                 if (isRecording) {
-                    console.log('[REC] calling unrecord()â€¦');
+                    console.log('[REC] calling unrecord()…');
                     await pub.unrecord?.();
                     console.log('[REC] unrecord() resolved');
                     isRecording = false;
                     // disarm auto-record for the rest of this live session
                     recordAuto = false;
                 } else {
-                    console.log('[REC] calling record()â€¦');
+                    console.log('[REC] calling record()…');
                     await pub.record?.();
                     console.log('[REC] record() resolved');
                     isRecording = true;
@@ -2507,7 +2507,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         });
 
         recordBtn.__hooked = true;
-        console.log('ðŸŽ¯ Record button listener attached');
+        console.log('🎯 Record button listener attached');
     });
     //Alert to avoid a camera locking resoltuion
     // ---- Resolution lock alert helpers ----
@@ -2526,7 +2526,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             alert.id = 'resLockAlert';
             alert.className = 'alert alert-warning reslock-alert d-none';
             alert.innerHTML = `
-      <strong>Low resolution detected (640Ã—480)</strong><br>
+      <strong>Low resolution detected (640×480)</strong><br>
       Chrome sometimes clamps the first camera open.
       Please select your camera in the dropdown once to break the lock.
       Start publish and select resolution to adjust higher.
@@ -2552,7 +2552,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         const alert = ensureResLockAlert();
         const strong = alert.querySelector('strong');
         if (strong && deviceLabel) {
-            strong.textContent = `Low resolution detected (640Ã—480) on ${deviceLabel}`;
+            strong.textContent = `Low resolution detected (640×480) on ${deviceLabel}`;
         }
         alert.classList.remove('d-none');
     }
@@ -2579,7 +2579,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         // defensively check the <strong> exists
         const strongEl = banner.querySelector('strong');
         if (strongEl && deviceLabel) {
-            strongEl.textContent = `Low resolution detected (640Ã—480) on ${deviceLabel}`;
+            strongEl.textContent = `Low resolution detected (640×480) on ${deviceLabel}`;
         }
         banner.classList.remove('d-none');
         banner.style.display = ''; // let CSS/Bootstrap decide
@@ -2659,7 +2659,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             console.log('[REC] preflight canRecord =', canRecordToken);
         } catch (e) {
             console.warn('[REC] token preflight failed:', e);
-            // Be conservative: if we canâ€™t prove capability, hide the record button pre-publish
+            // Be conservative: if we can’t prove capability, hide the record button pre-publish
             canRecordToken = false;
         } finally {
             // Always repaint based on the latest decision
@@ -2782,7 +2782,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         window.__blockAutoStart = true;
 
         try {
-            console.log('ðŸ›‘ Stopping broadcast...');
+            console.log('🛑 Stopping broadcast...');
 
             // If recording, try to stop it first (best-effort)
             try { await pub.unrecord?.(); } catch (_) { }
@@ -2802,7 +2802,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             window.isBroadcasting = false;
             isRecording = false;
 
-            console.log('â›” Publish stopped');
+            console.log('⛔ Publish stopped');
         } catch (e) {
             console.error('Stop failed:', e);
         } finally {
@@ -2863,7 +2863,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 events: ['active', 'inactive', 'viewercount', 'stopped']
             });
 
-            console.log(`ðŸš€ Broadcast started: ${streamName}`);
+            console.log(`🚀 Broadcast started: ${streamName}`);
             console.log('[REC] recordingAvailable:', pub.recordingAvailable);
 
             // Authoritative capability & state
@@ -2877,9 +2877,9 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             updateRecordButtonUI();
 
             await pub.webRTCPeer.replaceTrack(vTracks[0]);
-            console.log('âœ… Video track replacement done.');
+            console.log('✅ Video track replacement done.');
         } catch (err) {
-            console.error('ðŸ›‘ Broadcast Stopped:', err);
+            console.error('🛑 Broadcast Stopped:', err);
             window.isBroadcasting = false;
             isRecording = false;
             syncPublishButtonUI();
@@ -2914,7 +2914,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
             try {
                 if (!window.isBroadcasting) {
-                    console.log('[PUB] startingâ€¦');
+                    console.log('[PUB] starting…');
                     await BroadcastMillicastStream();
                     console.log('[PUB] start outcome', { isBroadcasting: window.isBroadcasting });
 
@@ -2925,7 +2925,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                         window.broadcastHandler?.({ name: 'publishStart' });
                     }
                 } else {
-                    console.log('[PUB] stoppingâ€¦');
+                    console.log('[PUB] stopping…');
                     await safeStopPublish();
                     console.log('[PUB] stop outcome', { isBroadcasting: window.isBroadcasting });
 
