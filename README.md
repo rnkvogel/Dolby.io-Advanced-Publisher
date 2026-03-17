@@ -48,8 +48,6 @@ Updated to show if recording is enabled on the start publishing button.
 
 # Auto bitrate to resolution set.
 
-* Updates coming will add overlay and live debugging features.
-
 # If Recording is Enabled.
 <img width="482" height="73" alt="Screenshot 2025-08-28 at 12 19 18 PM" src="https://github.com/user-attachments/assets/c9517da3-3a6d-4bf2-a3f7-cf9f818bc233" />
 
