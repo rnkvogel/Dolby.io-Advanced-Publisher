@@ -55,10 +55,14 @@ Updated to show if recording is enabled on the start publishing button.
 
 # Chrome Resolution Unlock 
 Chrome may lock the default camera to just 640x480. v1.3 add a helper and alert if the camera resolution is pinned to 640x480.
+
 <img width="696" height="166" alt="Screenshot 2025-08-29 at 12 11 37 PM" src="https://github.com/user-attachments/assets/8f47ee5c-eccc-4cf1-b44a-3b5a688dec47" />
 
 # Publishing Stats 
 Help publishers identify issues with the publishing stream and make real time adjustments.
+<img width="278" height="182" alt="Screenshot 2026-03-13 at 2 35 39 PM" src="https://github.com/user-attachments/assets/7502e676-b84c-4485-83ca-0093181bd949" />
+
+
 
 
 
