@@ -1,4 +1,4 @@
-//v1.3.33.35
+//v1.3.33.1
 import MillicastPublishUserMedia from './MillicastPublishUserMedia.js'
 const Director = millicast.Director
 const Logger = millicast.Logger
@@ -49,6 +49,9 @@ let millicastPublishUserMedia;
 let activeMediaSource = 'camera'; // 'camera' or 'screen'
 let activeStream = null; // To store the active media stream
 let compositeAnimationId = null; //Composite mode for combined screen share
+let dualCameraSession = null; // { cleanup, canvas, primaryStream, secondaryStream, animationId, mode }
+let currentCameraDeviceId = null;
+let currentDualCameraSecondaryDeviceId = null;
 
 
 //Control Chrome Share messages
@@ -136,10 +139,10 @@ document.addEventListener("DOMContentLoaded", async (event) => {
     // Function to toggle visibility of menu items with class "dropdown"
 
     window.cogOpen = function () {
-        const dropdowns = document.querySelectorAll('.dropdown');
-        dropdowns.forEach((dropdown) => {
-            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-        });
+        const panel = document.getElementById('mediaSettingsGlass');
+        if (!panel) return;
+        const isHidden = panel.style.display === 'none' || getComputedStyle(panel).display === 'none';
+        panel.style.display = isHidden ? 'block' : 'none';
     };
 
     //Mobile Handlers 
@@ -238,8 +241,10 @@ document.addEventListener("DOMContentLoaded", async (event) => {
     let selectedAspBtn = document.querySelector('#aspMenuButton');
     let aspect = 1.7778;
     let selectedResolutionBtn;
+    let selectedSvcModeBtn = document.querySelector('#svcModeMenuButton');
     let resolution = 720;
     let width;
+    let selectedSvcMode = 'none';
 
     //Need to define the bitrate to a resolution and source id
     const resolutionBitrateMap = {
@@ -443,11 +448,245 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
             await peer.replaceTrack(vTrack);
             console.log('✅ Video replaced');
+            await reapplyActiveSvcIfNeeded('replaceActiveStream', millicastPublishUserMedia, bandwidth);
             if (aTrack) {
                 await peer.replaceTrack(aTrack);
                 console.log('✅ Audio replaced');
             }
         }
+    }
+
+    async function cleanupDualCameraSession() {
+        if (!dualCameraSession) return;
+        try {
+            if (dualCameraSession.animationId) cancelAnimationFrame(dualCameraSession.animationId);
+        } catch {}
+        try {
+            dualCameraSession.primaryStream?.getTracks?.().forEach(t => t.stop());
+            dualCameraSession.secondaryStream?.getTracks?.().forEach(t => t.stop());
+            dualCameraSession.canvasStream?.getTracks?.().forEach(t => t.stop());
+        } catch {}
+        try {
+            dualCameraSession.primaryVideo && (dualCameraSession.primaryVideo.srcObject = null);
+            dualCameraSession.secondaryVideo && (dualCameraSession.secondaryVideo.srcObject = null);
+        } catch {}
+        dualCameraSession = null;
+    }
+
+    function getCurrentAudioTracksForVirtualSource() {
+        try {
+            const activeAudio = activeStream?.getAudioTracks?.() || [];
+            if (activeAudio.length) return activeAudio;
+        } catch {}
+        try {
+            const mmAudio = millicastPublishUserMedia?.mediaManager?.mediaStream?.getAudioTracks?.() || [];
+            if (mmAudio.length) return mmAudio;
+        } catch {}
+        return [];
+    }
+
+    function updateDualCameraSecondaryDropdownUI(selectedId) {
+        document.querySelectorAll('#camList .dropdown-item[data-role="pip-secondary-camera"]').forEach(item => {
+            if (item.dataset.deviceId === selectedId) item.classList.add('active');
+            else item.classList.remove('active');
+        });
+    }
+
+    async function startDualCameraMode(mode = 'pip') {
+        await cleanupDualCameraSession();
+
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = allDevices.filter(d => d.kind === 'videoinput');
+        if (cameras.length < 2) {
+            throw new Error('Dual camera mode requires at least two video input devices.');
+        }
+
+        const selectedCameraId = currentCameraDeviceId || document.querySelector('#camList .dropdown-item.active')?.id || cameras[0].deviceId;
+        const primaryCamera = cameras.find(c => c.deviceId === selectedCameraId && !String(c.deviceId).startsWith('screen')) || cameras[0];
+        const preferredSecondaryId = currentDualCameraSecondaryDeviceId;
+        let secondaryCamera = cameras.find(c => c.deviceId === preferredSecondaryId && c.deviceId !== primaryCamera.deviceId);
+        if (!secondaryCamera) {
+            secondaryCamera = cameras.find(c => c.deviceId !== primaryCamera.deviceId) || cameras[1];
+        }
+        if (!primaryCamera || !secondaryCamera) {
+            throw new Error('Could not determine two distinct cameras for dual camera mode.');
+        }
+        currentDualCameraSecondaryDeviceId = secondaryCamera.deviceId;
+
+        const commonVideo = {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 30, max: 30 }
+        };
+
+        const openCameraWithFallback = async (deviceId, isSecondary = false) => {
+            const attempts = [
+                {
+                    video: { ...commonVideo, deviceId: { exact: deviceId } },
+                    audio: false
+                },
+                {
+                    video: {
+                        deviceId: { exact: deviceId },
+                        width: { ideal: isSecondary ? 640 : 1280, max: isSecondary ? 1280 : 1920 },
+                        height: { ideal: isSecondary ? 360 : 720, max: isSecondary ? 720 : 1080 },
+                        frameRate: { ideal: 24, max: 30 }
+                    },
+                    audio: false
+                },
+                {
+                    video: {
+                        deviceId: { exact: deviceId },
+                        width: { ideal: 640 },
+                        height: { ideal: 360 },
+                        frameRate: { ideal: 24 }
+                    },
+                    audio: false
+                }
+            ];
+
+            let lastErr = null;
+            for (const constraints of attempts) {
+                try {
+                    return await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (err) {
+                    lastErr = err;
+                    if (!(err?.name === 'OverconstrainedError' || err?.name === 'NotReadableError')) {
+                        throw err;
+                    }
+                }
+            }
+            throw lastErr || new Error('Unable to open camera.');
+        };
+
+        const primaryStream = await openCameraWithFallback(primaryCamera.deviceId, false);
+        const secondaryStream = await openCameraWithFallback(secondaryCamera.deviceId, true);
+
+        const primaryVideo = document.createElement('video');
+        primaryVideo.playsInline = true;
+        primaryVideo.muted = true;
+        primaryVideo.autoplay = true;
+        primaryVideo.srcObject = primaryStream;
+
+        const secondaryVideo = document.createElement('video');
+        secondaryVideo.playsInline = true;
+        secondaryVideo.muted = true;
+        secondaryVideo.autoplay = true;
+        secondaryVideo.srcObject = secondaryStream;
+
+        await primaryVideo.play().catch(() => {});
+        await secondaryVideo.play().catch(() => {});
+
+        const primarySettings = primaryStream.getVideoTracks()[0].getSettings?.() || {};
+        const canvas = document.createElement('canvas');
+        canvas.width = primarySettings.width || 1280;
+        canvas.height = primarySettings.height || 720;
+        const ctx = canvas.getContext('2d');
+
+        const pipWidth = Math.floor(canvas.width * 0.28);
+        const pipHeight = Math.floor((pipWidth * 9) / 16);
+        const overlay = {
+            x: canvas.width - pipWidth - 24,
+            y: canvas.height - pipHeight - 24,
+            width: pipWidth,
+            height: pipHeight
+        };
+
+        const preview = document.getElementById('vidWin');
+        const mapToCanvasCoord = (clientX, clientY) => {
+            const rect = preview.getBoundingClientRect();
+            const xScale = canvas.width / Math.max(rect.width, 1);
+            const yScale = canvas.height / Math.max(rect.height, 1);
+            return { x: (clientX - rect.left) * xScale, y: (clientY - rect.top) * yScale };
+        };
+
+        let dragging = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        const onMouseMove = (e) => {
+            if (!dragging || mode !== 'pip') return;
+            const { x, y } = mapToCanvasCoord(e.clientX, e.clientY);
+            overlay.x = Math.max(0, Math.min(canvas.width - overlay.width, x - dragOffsetX));
+            overlay.y = Math.max(0, Math.min(canvas.height - overlay.height, y - dragOffsetY));
+        };
+        const onMouseUp = () => {
+            dragging = false;
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+        const onMouseDown = (e) => {
+            if (mode !== 'pip') return;
+            const { x, y } = mapToCanvasCoord(e.clientX, e.clientY);
+            const inside = x >= overlay.x && x <= overlay.x + overlay.width && y >= overlay.y && y <= overlay.y + overlay.height;
+            if (!inside) return;
+            dragging = true;
+            dragOffsetX = x - overlay.x;
+            dragOffsetY = y - overlay.y;
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        };
+        preview.addEventListener('mousedown', onMouseDown);
+        preview.style.cursor = mode === 'pip' ? 'move' : '';
+
+        dualCameraSession = {
+            mode,
+            canvas,
+            ctx,
+            canvasStream: null,
+            primaryStream,
+            secondaryStream,
+            primaryVideo,
+            secondaryVideo,
+            animationId: null,
+            cleanup: async () => {
+                preview.removeEventListener('mousedown', onMouseDown);
+                preview.style.cursor = '';
+                onMouseUp();
+                await cleanupDualCameraSession();
+            }
+        };
+
+        const draw = () => {
+            if (!dualCameraSession || !ctx) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (mode === 'sideBySide') {
+                const half = Math.floor(canvas.width / 2);
+                ctx.drawImage(primaryVideo, 0, 0, half, canvas.height);
+                ctx.drawImage(secondaryVideo, half, 0, canvas.width - half, canvas.height);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.moveTo(half, 0);
+                ctx.lineTo(half, canvas.height);
+                ctx.stroke();
+            } else {
+                ctx.drawImage(primaryVideo, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(secondaryVideo, overlay.x, overlay.y, overlay.width, overlay.height);
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = '#ffffff';
+                ctx.strokeRect(overlay.x, overlay.y, overlay.width, overlay.height);
+            }
+            dualCameraSession.animationId = requestAnimationFrame(draw);
+        };
+        draw();
+
+        const canvasStream = canvas.captureStream(30);
+        dualCameraSession.canvasStream = canvasStream;
+        const audioTracks = getCurrentAudioTracksForVirtualSource();
+        const mixedAudioTrack = audioTracks.length ? await mixAudioTracks(audioTracks) : null;
+        const newStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...(mixedAudioTrack ? [mixedAudioTrack] : [])
+        ]);
+
+        activeMediaSource = mode === 'sideBySide' ? 'dualCameraSideBySide' : 'dualCameraPip';
+        await replaceActiveStream(newStream);
+        return {
+            primaryCamera,
+            secondaryCamera,
+            mode
+        };
     }
 
   
@@ -631,309 +870,6 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
 
 
-
-    // === Camera + Screen (reverse composite): camera full, screen PiP ===
-    async function startCameraPlusScreen() {
-        let screenStream, cameraStream, canvasStream;
-        let cleanup;
-
-        try {
-            // keep reference to the current stream
-            const originalStream = activeStream;
-            const oldAudio = (originalStream && originalStream.getAudioTracks()) || [];
-
-            // 1) get main CAMERA (no audio here — we’ll reuse/mix mic separately)
-            cameraStream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    width: { ideal: 1920, max: 3840 },
-                    height: { ideal: 1080, max: 2160 },
-                    frameRate: { ideal: 30, max: 60 },
-                    aspectRatio: 16 / 9
-                },
-                audio: false
-            });
-
-            // 2) get SCREEN with audio if available
-            screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: true,
-                audio: true      // Chrome tab/system audio when granted
-            });
-            const screenAudio = screenStream.getAudioTracks();
-
-            // 3) render both to hidden videos (you already use these IDs elsewhere)
-            const camVid = document.getElementById('cameraVideo');
-            const screenVid = document.getElementById('screenVideo');
-            camVid.srcObject = cameraStream;
-            screenVid.srcObject = screenStream;
-            await camVid.play().catch(() => { });
-            await screenVid.play().catch(() => { });
-
-            // 4) setup a canvas using CAMERA as the base (16:9)
-            const canvas = document.getElementById('compositeCanvas');
-            const ctx = canvas.getContext('2d');
-
-            const camSet = cameraStream.getVideoTracks()[0].getSettings();
-            canvas.width = camSet.width || 1280;
-            canvas.height = Math.floor(canvas.width * 9 / 16);
-
-            // size the SCREEN overlay (PiP) based on its own aspect
-            const scrSet = screenStream.getVideoTracks()[0].getSettings();
-            const scrAR = (scrSet.width && scrSet.height) ? scrSet.width / scrSet.height : (16 / 9);
-
-            // PiP kept smaller to avoid overconstrained issues
-            const pipW = Math.floor(canvas.width * 0.23);
-            const pipH = Math.floor(pipW / scrAR);
-
-            // default PiP position (bottom-right); honor window.pipCorner if you’re using it
-            const corner = (window.pipCorner || 'br').toLowerCase(); // 'tl','tr','bl','br'
-            let overlayX = (corner.includes('r')) ? (canvas.width - pipW - 22) : 22;
-            let overlayY = (corner.includes('b')) ? (canvas.height - pipH - 22) : 22;
-
-            // enable drag on preview video
-            const videoWin = document.getElementById('vidWin');
-            let dragging = false, offsetX = 0, offsetY = 0;
-            function mapToCanvas(clientX, clientY) {
-                const rect = videoWin.getBoundingClientRect();
-                const x = (clientX - rect.left) * (canvas.width / rect.width);
-                const y = (clientY - rect.top) * (canvas.height / rect.height);
-                return { x, y };
-            }
-            function onMouseMove(e) {
-                if (!dragging) return;
-                const { x, y } = mapToCanvas(e.clientX, e.clientY);
-                overlayX = Math.max(0, Math.min(canvas.width - pipW, x - offsetX));
-                overlayY = Math.max(0, Math.min(canvas.height - pipH, y - offsetY));
-            }
-            function onMouseUp() {
-                dragging = false;
-                window.removeEventListener('mousemove', onMouseMove);
-                window.removeEventListener('mouseup', onMouseUp);
-                videoWin.style.cursor = '';
-            }
-            videoWin.addEventListener('mousedown', (e) => {
-                const { x, y } = mapToCanvas(e.clientX, e.clientY);
-                if (x >= overlayX && x <= overlayX + pipW && y >= overlayY && y <= overlayY + pipH) {
-                    dragging = true;
-                    offsetX = x - overlayX;
-                    offsetY = y - overlayY;
-                    videoWin.style.cursor = 'move';
-                    window.addEventListener('mousemove', onMouseMove);
-                    window.addEventListener('mouseup', onMouseUp);
-                }
-            });
-
-            // 5) draw loop: camera full frame + screen PiP
-            function drawComposite() {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                // base = CAMERA
-                ctx.drawImage(camVid, 0, 0, canvas.width, canvas.height);
-                // overlay = SCREEN
-                ctx.drawImage(screenVid, overlayX, overlayY, pipW, pipH);
-                ctx.lineWidth = 3;
-                ctx.strokeStyle = '#fff';
-                ctx.strokeRect(overlayX, overlayY, pipW, pipH);
-                compositeAnimation = requestAnimationFrame(drawComposite);
-            }
-            drawComposite();
-
-            // 6) capture canvas as our video
-            canvasStream = canvas.captureStream(30);
-            const videoTracks = canvasStream.getVideoTracks();
-
-            // 7) mix audio: keep old mic + add screen audio (if permitted)
-            const mixedAudioTrack = await mixAudioTracks(screenAudio, oldAudio);
-
-            // 8) build + publish
-            const newStream = new MediaStream([...videoTracks, mixedAudioTrack]);
-            await replaceActiveStream(newStream);
-            activeMediaSource = 'camera'; // base is camera
-            isScreenSharing = true;
-            showBanner?.(); // if you show a banner
-
-            // 9) cleanup when screen stops
-            screenCleanup = async () => {
-                cancelAnimationFrame(compositeAnimation);
-                [screenStream, cameraStream].forEach(s => s && s.getTracks().forEach(t => t.stop()));
-                screenVid.srcObject = null;
-                camVid.srcObject = null;
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                await replaceActiveStream(originalStream);
-                isScreenSharing = false;
-                hideBanner?.();
-            };
-            screenStream.getVideoTracks()[0].onended = screenCleanup;
-
-        } catch (err) {
-            console.error('startCameraPlusScreen error:', err);
-            if (cleanup) await cleanup();
-        }
-    }
-
-
-
-    async function startDualCamera() {
-        let originalStream = window.activeStream || null;
-        let canvasStream = null, camAStream = null, camBStream = null, rafId = 0;
-
-        const stopStream = s => { try { s && s.getTracks().forEach(t => t.stop()); } catch { } };
-        const log = (...a) => console.log('[DualCam]', ...a);
-
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const cams = devices.filter(d => d.kind === 'videoinput');
-            if (cams.length < 1) { alert('No cameras available.'); return; }
-
-            // Determine primary (current active publishing video device if available)
-            const activeVid = window.millicastPublishUserMedia?.activeVideo;
-            const activeDevId = activeVid?.deviceId || null;
-            const primaryId = activeDevId || cams[0].deviceId;
-
-            // Determine PiP (user-chosen or auto-pick)
-            let pipId = (window.pipDeviceId && cams.some(c => c.deviceId === window.pipDeviceId))
-                ? window.pipDeviceId
-                : (cams.find(c => c.deviceId !== primaryId)?.deviceId || primaryId);
-
-            // ===== Open/Reuse Primary =====
-            // If our active stream is already from primaryId, REUSE it; don’t re-open.
-            const maybeActiveTrack = originalStream?.getVideoTracks?.()[0] || null;
-            const sameAsActive =
-                !!maybeActiveTrack &&
-                typeof maybeActiveTrack.getSettings === 'function' &&
-                (maybeActiveTrack.getSettings().deviceId === primaryId);
-
-            if (sameAsActive) {
-                // reuse the active stream
-                camAStream = new MediaStream([maybeActiveTrack]);
-                log('Primary uses existing active track.');
-            } else {
-                // stop any old local preview tracks that might be holding devices
-                try { originalStream?.getVideoTracks().forEach(t => t.stop()); } catch { }
-
-                // open primary camera fresh
-                try {
-                    camAStream = await navigator.mediaDevices.getUserMedia({
-                        video: {
-                            deviceId: { exact: primaryId },
-                            width: { ideal: 1920, max: 3840 },
-                            height: { ideal: 1080, max: 2160 },
-                            frameRate: { ideal: 30, max: 60 },
-                            aspectRatio: 16 / 9
-                        },
-                        audio: false
-                    });
-                } catch (err) {
-                    if (err?.name === 'NotReadableError') {
-                        log('Primary NotReadableError; retrying smaller…', err);
-                        camAStream = await navigator.mediaDevices.getUserMedia({
-                            video: { deviceId: { exact: primaryId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-                            audio: false
-                        });
-                    } else {
-                        throw err;
-                    }
-                }
-            }
-
-            // ===== Open/Clone PiP =====
-            if (pipId === primaryId) {
-                // Same device → clone primary track
-                const primaryTrack = camAStream.getVideoTracks()[0];
-                const cloned = primaryTrack.clone();
-                camBStream = new MediaStream([cloned]);
-                log('PiP uses cloned track from primary.');
-            } else {
-                // different device → open downscaled
-                try {
-                    camBStream = await navigator.mediaDevices.getUserMedia({
-                        video: {
-                            deviceId: { exact: pipId },
-                            width: { ideal: 640, max: 854 },
-                            height: { ideal: 360, max: 480 },
-                            frameRate: { ideal: 24, max: 30 }
-                        },
-                        audio: false
-                    });
-                } catch (err) {
-                    if (err?.name === 'NotReadableError' || err?.name === 'OverconstrainedError') {
-                        log('PiP error; retry smaller…', err);
-                        camBStream = await navigator.mediaDevices.getUserMedia({
-                            video: {
-                                deviceId: { exact: pipId },
-                                width: { ideal: 320 }, height: { ideal: 180 }, frameRate: { ideal: 24 }
-                            },
-                            audio: false
-                        });
-                    } else {
-                        throw err;
-                    }
-                }
-            }
-
-            // ===== Composite to canvas =====
-            const vA = document.createElement('video');
-            const vB = document.createElement('video');
-            [vA, vB].forEach(v => { v.muted = true; v.playsInline = true; v.autoplay = true; });
-            vA.srcObject = camAStream; vB.srcObject = camBStream;
-            await vA.play().catch(() => { }); await vB.play().catch(() => { });
-
-            let canvas = document.getElementById('compositeCanvas');
-            if (!canvas) { canvas = Object.assign(document.createElement('canvas'), { id: 'compositeCanvas', style: 'display:none' }); document.body.appendChild(canvas); }
-            const ctx = canvas.getContext('2d');
-
-            const aSet = camAStream.getVideoTracks()[0].getSettings?.() || {};
-            canvas.width = aSet.width || 1280;
-            canvas.height = Math.floor(canvas.width * 9 / 16);
-
-            const bSet = camBStream.getVideoTracks()[0].getSettings?.() || {};
-            const arB = (bSet.width && bSet.height) ? (bSet.width / bSet.height) : (16 / 9);
-            const pipW = Math.floor(canvas.width * 0.23);
-            const pipH = Math.floor(pipW / arB);
-            let overlayX = canvas.width - pipW - 22;
-            let overlayY = canvas.height - pipH - 22;
-
-            function draw() {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(vA, 0, 0, canvas.width, canvas.height);
-                ctx.drawImage(vB, overlayX, overlayY, pipW, pipH);
-                ctx.lineWidth = 3; ctx.strokeStyle = '#fff';
-                ctx.strokeRect(overlayX, overlayY, pipW, pipH);
-                rafId = requestAnimationFrame(draw);
-            }
-            draw();
-
-            canvasStream = canvas.captureStream(30);
-            const vid = canvasStream.getVideoTracks()[0];
-
-            // keep your existing mic(s)
-            const oldAudio = originalStream?.getAudioTracks?.() || [];
-            let audioTrack = null;
-            if (typeof mixAudioTracks === 'function') {
-                audioTrack = await mixAudioTracks([], oldAudio);
-            } else {
-                audioTrack = oldAudio[0] || null;
-            }
-            const finalStream = new MediaStream(audioTrack ? [vid, audioTrack] : [vid]);
-
-            await replaceActiveStream(finalStream);
-            window.activeMediaSource = 'camera';
-
-            // Cleanup on track end
-            const cleanup = async () => {
-                try { cancelAnimationFrame(rafId); } catch { }
-                stopStream(camAStream); stopStream(camBStream);
-                try { await replaceActiveStream(originalStream); } catch { }
-            };
-            camAStream.getVideoTracks()[0].onended = cleanup;
-            camBStream.getVideoTracks()[0].onended = cleanup;
-
-        } catch (err) {
-            console.error('startDualCamera error:', err);
-            try { cancelAnimationFrame(rafId); } catch { }
-            try { stopStream(camAStream); stopStream(camBStream); } catch { }
-        }
-    }
-
-
  //   End Screen Share
     document.addEventListener("DOMContentLoaded", () => {
         const elResolutionList = document.querySelectorAll("#resolutionMenu > .dropdown-item");
@@ -943,14 +879,226 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         elSimulcastList.forEach((el) => el.addEventListener("click", onToggleSimulcast));
     });
 
-    window.startScreenShare = startScreenShare;
-    window.startCameraPlusScreen = startCameraPlusScreen;
-    window.startDualCamera = startDualCamera;
-
     let selectedSimulcastBtn = document.querySelector('#simulcastMenuButton');
     let simulcast = false;
 
     const events = ['viewercount']
+
+
+    // ---- Quality recovery monitor ----
+    let qualityRecoveryTimer = null;
+    let qualityRecoveryBusy = false;
+    let lastQualityRecoveryAt = 0;
+    let lastVideoStatsSample = null;
+    let consecutiveLowBitrateSamples = 0;
+
+    const QUALITY_RECOVERY_CONFIG = {
+        checkIntervalMs: 10000,
+        cooldownMs: 20000,
+        lowSamplesNeeded: 2,
+        minResolutionForRecovery: 720,
+        bitrateFloorKbpsByResolution: {
+            720: 1000,
+            1080: 1800,
+            1440: 3000,
+            2160: 4500
+        }
+    };
+
+    function getRecoveryBitrateFloor(resolutionValue) {
+        const r = Number(resolutionValue || resolution || 720);
+        if (r >= 2160) return QUALITY_RECOVERY_CONFIG.bitrateFloorKbpsByResolution[2160];
+        if (r >= 1440) return QUALITY_RECOVERY_CONFIG.bitrateFloorKbpsByResolution[1440];
+        if (r >= 1080) return QUALITY_RECOVERY_CONFIG.bitrateFloorKbpsByResolution[1080];
+        if (r >= 720) return QUALITY_RECOVERY_CONFIG.bitrateFloorKbpsByResolution[720];
+        return 0;
+    }
+
+    async function collectPublisherVideoStats() {
+        const pub = (typeof getPublisher === 'function')
+            ? getPublisher()
+            : (window.millicastPublishUserMedia || window.millicastPublish || null);
+
+        const pc = pub?.webRTCPeer?.pc || pub?.webRTCPeer;
+        if (!pc || typeof pc.getStats !== 'function') return null;
+
+        const report = await pc.getStats();
+        let outbound = null;
+        let candidatePair = null;
+
+        report.forEach((stat) => {
+            if (!outbound && stat.type === 'outbound-rtp' && stat.kind === 'video' && !stat.isRemote) {
+                outbound = stat;
+            }
+            if (!candidatePair && stat.type === 'candidate-pair' && stat.nominated) {
+                candidatePair = stat;
+            }
+        });
+
+        if (!outbound) return null;
+
+        const timestampMs = Number(outbound.timestamp || Date.now());
+        const bytesSent = Number(outbound.bytesSent || 0);
+        let bitrateKbps = 0;
+
+        if (lastVideoStatsSample && lastVideoStatsSample.timestampMs < timestampMs && bytesSent >= lastVideoStatsSample.bytesSent) {
+            const bytesDelta = bytesSent - lastVideoStatsSample.bytesSent;
+            const timeDeltaMs = timestampMs - lastVideoStatsSample.timestampMs;
+            if (timeDeltaMs > 0) {
+                bitrateKbps = (bytesDelta * 8) / timeDeltaMs;
+            }
+        }
+
+        lastVideoStatsSample = { timestampMs, bytesSent };
+
+        return {
+            timestampMs,
+            bitrateKbps,
+            frameHeight: Number(outbound.frameHeight || 0),
+            frameWidth: Number(outbound.frameWidth || 0),
+            framesPerSecond: Number(outbound.framesPerSecond || 0),
+            qualityLimitationReason: outbound.qualityLimitationReason || 'unknown',
+            availableOutgoingBitrateKbps: Number(candidatePair?.availableOutgoingBitrate || 0) / 1000,
+            targetBitrateKbps: Number(outbound.targetBitrate || 0) / 1000
+        };
+    }
+
+    async function forceVideoQualityRecovery(reason, stats = null) {
+        const now = Date.now();
+        if (qualityRecoveryBusy) return false;
+        if (now - lastQualityRecoveryAt < QUALITY_RECOVERY_CONFIG.cooldownMs) return false;
+
+        const pub = (typeof getPublisher === 'function')
+            ? getPublisher()
+            : (window.millicastPublishUserMedia || window.millicastPublish || null);
+
+        if (!window.isBroadcasting || !pub?.isActive?.()) return false;
+
+        const videoTrack = millicastPublishUserMedia?.mediaManager?.mediaStream?.getVideoTracks?.()[0];
+        if (!videoTrack) return false;
+
+        qualityRecoveryBusy = true;
+        lastQualityRecoveryAt = now;
+
+        try {
+            const settings = videoTrack.getSettings ? videoTrack.getSettings() : {};
+            const targetHeight = Number(settings.height || resolution || 720);
+            const targetWidth = Number(settings.width || Math.round(targetHeight * (aspect || (16 / 9))));
+            const targetAspect = Number(settings.aspectRatio || aspect || (16 / 9));
+            const targetFps = Number(settings.frameRate || fps || 30);
+            const targetBitrate = getTargetBitrateForResolution(targetHeight);
+
+            console.warn('[QUALITY] Recovery triggered:', {
+                reason,
+                activeMediaSource,
+                targetHeight,
+                targetWidth,
+                targetFps,
+                targetBitrate,
+                stats
+            });
+
+            await applyVideoProfile({
+                width: targetWidth,
+                height: targetHeight,
+                aspectRatio: targetAspect,
+                frameRate: targetFps,
+                bitrateKbps: targetBitrate
+            }, {
+                replaceTrack: true,
+                source: 'quality-recovery'
+            });
+
+            consecutiveLowBitrateSamples = 0;
+            console.log('[QUALITY] Recovery completed successfully.');
+            return true;
+        } catch (error) {
+            console.error('[QUALITY] Recovery failed:', error);
+            return false;
+        } finally {
+            qualityRecoveryBusy = false;
+        }
+    }
+
+    async function maybeRecoverVideoQuality() {
+        try {
+            if (!window.isBroadcasting || isConnecting || isStopping) return;
+            if (Number(resolution || 0) < QUALITY_RECOVERY_CONFIG.minResolutionForRecovery) return;
+
+            const stats = await collectPublisherVideoStats();
+            if (!stats) return;
+
+            const floorKbps = getRecoveryBitrateFloor(stats.frameHeight || resolution);
+            const actualBitrateKbps = Number(stats.bitrateKbps || 0);
+            const qualityReason = String(stats.qualityLimitationReason || '').toLowerCase();
+            const resolutionDropped = Number(stats.frameHeight || 0) > 0 && Number(stats.frameHeight || 0) < Number(resolution || 0);
+
+            console.log('[QUALITY] Monitor sample:', {
+                activeMediaSource,
+                actualBitrateKbps: Math.round(actualBitrateKbps),
+                floorKbps,
+                frameHeight: stats.frameHeight,
+                fps: stats.framesPerSecond,
+                availableOutgoingBitrateKbps: Math.round(stats.availableOutgoingBitrateKbps || 0),
+                targetBitrateKbps: Math.round(stats.targetBitrateKbps || 0),
+                qualityReason,
+                resolutionDropped
+            });
+
+            if (qualityReason === 'cpu') {
+                consecutiveLowBitrateSamples = 0;
+                console.warn('[QUALITY] CPU limitation indicated; not forcing refresh.');
+                return;
+            }
+
+            if (!floorKbps) return;
+
+            if (resolutionDropped) {
+                console.warn('[QUALITY] Resolution drop detected:', {
+                    selectedResolution: resolution,
+                    actualResolution: stats.frameHeight
+                });
+            }
+
+            if (actualBitrateKbps > 0 && actualBitrateKbps < floorKbps) {
+                consecutiveLowBitrateSamples += 1;
+                console.warn('[QUALITY] Bitrate drop detected:', {
+                    actualBitrateKbps: Math.round(actualBitrateKbps),
+                    floorKbps,
+                    samples: consecutiveLowBitrateSamples
+                });
+            } else {
+                consecutiveLowBitrateSamples = 0;
+            }
+
+            if (resolutionDropped || consecutiveLowBitrateSamples >= QUALITY_RECOVERY_CONFIG.lowSamplesNeeded) {
+                await forceVideoQualityRecovery(`quality below floor for ${consecutiveLowBitrateSamples} checks`, stats);
+            }
+        } catch (error) {
+            console.warn('[QUALITY] Monitor check failed:', error);
+        }
+    }
+
+    function startQualityRecoveryMonitor() {
+        stopQualityRecoveryMonitor();
+        consecutiveLowBitrateSamples = 0;
+        lastVideoStatsSample = null;
+        qualityRecoveryTimer = setInterval(() => {
+            maybeRecoverVideoQuality();
+        }, QUALITY_RECOVERY_CONFIG.checkIntervalMs);
+        console.log('[QUALITY] Recovery monitor started.');
+    }
+
+    function stopQualityRecoveryMonitor() {
+        if (qualityRecoveryTimer) {
+            clearInterval(qualityRecoveryTimer);
+            qualityRecoveryTimer = null;
+        }
+        consecutiveLowBitrateSamples = 0;
+        lastVideoStatsSample = null;
+        qualityRecoveryBusy = false;
+        console.log('[QUALITY] Recovery monitor stopped.');
+    }
 
     //Set Bitrate
     function setBitrate(bitrateKbps) {
@@ -972,24 +1120,187 @@ document.addEventListener("DOMContentLoaded", async (event) => {
     }
 
 
+    async function setVideoBitrateSafe(nextBitrateKbps, source = 'unknown', opts = {}) {
+        const parsed = Number(nextBitrateKbps);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            console.warn(`[BITRATE] Ignoring invalid bitrate from ${source}:`, nextBitrateKbps);
+            return false;
+        }
+
+        bandwidth = Math.round(parsed);
+        if (selectedBandwidthBtn) {
+            selectedBandwidthBtn.innerHTML = `${bandwidth} kbps`;
+        }
+
+        const isActive = !!millicastPublishUserMedia?.isActive?.();
+        const peer = millicastPublishUserMedia?.webRTCPeer;
+        const preferSenderParams = opts.preferSenderParams !== false;
+
+        if (!isActive || !peer) {
+            console.log(`[BITRATE] Stream not active. Storing bitrate ${bandwidth} kbps for next publish.`);
+            if (millicastPublishUserMedia) {
+                millicastPublishUserMedia.bandwidthPreset = bandwidth;
+            }
+            return true;
+        }
+
+        try {
+            const sender = peer?.getSenders?.().find(s => s.track?.kind === 'video');
+            if (preferSenderParams && sender && typeof sender.getParameters === 'function' && typeof sender.setParameters === 'function') {
+                const parameters = sender.getParameters() || {};
+                if (!parameters.encodings || !parameters.encodings.length) {
+                    parameters.encodings = [{}];
+                }
+                const svcMode = getPreferredSvcMode(codec);
+                parameters.encodings = parameters.encodings.map((encoding = {}, index) => ({
+                    ...encoding,
+                    maxBitrate: bandwidth * 1000,
+                    ...(svcMode && index === 0 ? { scalabilityMode: encoding.scalabilityMode || svcMode } : {})
+                }));
+                console.log(`[BITRATE] Applying sender maxBitrate=${bandwidth} kbps via RTCRtpSender.setParameters (${source})`, parameters.encodings);
+                await sender.setParameters(parameters);
+                if (svcMode) {
+                    await reapplyActiveSvcIfNeeded(`bitrate-${source}`, millicastPublishUserMedia, bandwidth);
+                }
+                console.log(`[BITRATE] Sender parameters bitrate applied: ${bandwidth} kbps.`);
+                return true;
+            }
+
+            if (peer?.updateBitrate) {
+                console.log(`[BITRATE] Falling back to SDK updateBitrate=${bandwidth} kbps (${source})`);
+                await peer.updateBitrate(bandwidth);
+                console.log(`[BITRATE] SDK bitrate updated to ${bandwidth} kbps.`);
+                return true;
+            }
+
+            console.warn('[BITRATE] No supported bitrate update path found.');
+            return false;
+        } catch (error) {
+            const msg = String(error?.message || error || '');
+            if (error?.name === 'InvalidStateError' && msg.includes('Called in wrong state: stable')) {
+                console.warn(`[BITRATE] Ignoring stable-state renegotiation race from ${source}:`, error);
+                return false;
+            }
+            console.error(`[BITRATE] Failed to update bitrate from ${source}:`, error);
+            return false;
+        }
+    }
+
+
+
+    async function applyVideoProfile(profile = {}, opts = {}) {
+        const videoTrack = millicastPublishUserMedia?.mediaManager?.mediaStream?.getVideoTracks?.()[0];
+        if (!videoTrack) {
+            console.warn('[PROFILE] No video track found for profile apply.');
+            return false;
+        }
+
+        const targetHeight = Number(profile.height);
+        const targetFrameRate = Number(profile.frameRate);
+        const targetAspect = Number(profile.aspectRatio || aspect || (16 / 9));
+        const targetWidth = Number(profile.width) || (Number.isFinite(targetHeight) ? Math.round(targetHeight * targetAspect) : undefined);
+        const replaceTrack = opts.replaceTrack === true;
+        const source = opts.source || 'profile';
+
+        const constraints = {};
+        if (Number.isFinite(targetWidth) && targetWidth > 0) {
+            constraints.width = { ideal: targetWidth, max: Math.max(targetWidth, 3840) };
+        }
+        if (Number.isFinite(targetHeight) && targetHeight > 0) {
+            constraints.height = { ideal: targetHeight, max: Math.max(targetHeight, 2160) };
+        }
+        if (Number.isFinite(targetAspect) && targetAspect > 0) {
+            constraints.aspectRatio = targetAspect;
+        }
+        if (Number.isFinite(targetFrameRate) && targetFrameRate > 0) {
+            constraints.frameRate = targetFrameRate;
+        }
+
+        console.log(`[PROFILE] Applying ${source}:`, constraints);
+        await videoTrack.applyConstraints(constraints);
+
+        const updated = videoTrack.getSettings?.() || {};
+        if (Number.isFinite(targetHeight) && targetHeight > 0) {
+            resolution = targetHeight;
+            if (selectedResolutionBtn) selectedResolutionBtn.innerHTML = `${targetHeight}p`;
+        }
+        if (Number.isFinite(targetFrameRate) && targetFrameRate > 0) {
+            fps = targetFrameRate;
+            if (selectedFpsBtn) selectedFpsBtn.innerHTML = `${targetFrameRate} FPS`;
+        }
+
+        if (replaceTrack && millicastPublishUserMedia?.isActive?.() && millicastPublishUserMedia?.webRTCPeer?.replaceTrack) {
+            await millicastPublishUserMedia.webRTCPeer.replaceTrack(videoTrack);
+            console.log(`[PROFILE] replaceTrack completed for ${source}.`);
+            await reapplyActiveSvcIfNeeded(`profile-${source}`, millicastPublishUserMedia, Number(profile.bitrateKbps) || bandwidth);
+        }
+
+        if (Number.isFinite(Number(profile.bitrateKbps)) && Number(profile.bitrateKbps) > 0) {
+            await setVideoBitrateSafe(Number(profile.bitrateKbps), source, {
+                preferSenderParams: true
+            });
+        }
+
+        console.log(`[PROFILE] Updated track settings after ${source}:`, updated);
+        return true;
+    }
+
+    function updateSvcModeMenuAvailability() {
+        const svcWrapperBtn = document.getElementById('svcModeMenuButton');
+        const svcItems = document.querySelectorAll('#svcModeMenu > .dropdown-item');
+        const supported = codecSupportsSvc(codec);
+
+        if (!svcWrapperBtn) return;
+
+        // Keep the button clickable so the user can always open the menu.
+        // Only the individual options are disabled when the current codec does not support SVC.
+        svcWrapperBtn.disabled = false;
+        svcWrapperBtn.innerHTML = !supported
+            ? 'SVC (VP9/AV1)'
+            : (selectedSvcMode === 'none' ? 'SVC Off' : `SVC ${selectedSvcMode}`);
+
+        svcWrapperBtn.classList.toggle('svc-unsupported', !supported);
+
+        svcItems.forEach((item) => {
+            const mode = String(item.dataset.svcMode || 'none');
+            const disabled = !supported && mode !== 'none';
+            item.classList.toggle('disabled', disabled);
+            item.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+        });
+
+        if (!supported && selectedSvcMode !== 'none') selectedSvcMode = 'none';
+    }
+
+    const onSetSvcMode = async (evt) => {
+        const item = evt?.target?.closest?.('.dropdown-item') || evt?.target;
+        const nextMode = String(item?.dataset?.svcMode || 'none');
+
+        if (!codecSupportsSvc(codec) && nextMode !== 'none') {
+            console.log('[SVC] Select VP9 or AV1 to enable SVC modes.');
+            updateSvcModeMenuAvailability();
+            return;
+        }
+
+        selectedSvcMode = nextMode;
+        console.log(`[SVC] Selected mode: ${selectedSvcMode}`);
+        updateSvcModeMenuAvailability();
+
+        if (!codecSupportsSvc(codec)) {
+            console.log('[SVC] Current codec does not support SVC; selection stored but inactive.');
+            return;
+        }
+
+        if (millicastPublishUserMedia?.isActive?.()) {
+            const applied = await applyVideoSvcPreferences(getPublisher(), codec, bandwidth);
+            console.log(`[SVC] Live mode apply result for ${codec.toUpperCase()}:`, applied);
+        }
+    };
+
     const onSetVideoBandwidth = async (evt) => {
         try {
             selectedBandwidthBtn.disabled = true;
-            bandwidth = parseInt(evt.target.dataset.rate, 10);
-            selectedBandwidthBtn.innerHTML = `${bandwidth} kbps`;
-
-            let peerConnection = millicastPublishUserMedia.webRTCPeer;
-
-            if (millicastPublishUserMedia.isActive()) {
-                console.log(`Updating bitrate to: ${bandwidth} kbps (Live Stream Active)`);
-
-                // ✅ Use Millicast’s updateBitrate() API
-                await peerConnection.updateBitrate(bandwidth);
-                console.log(`Millicast API: Bitrate updated to ${bandwidth} kbps.`);
-            } else {
-                console.warn("Stream is not active. Bitrate setting will apply on start.");
-                millicastPublishUserMedia.bandwidthPreset = bandwidth;
-            }
+            const nextRate = Number(evt?.target?.dataset?.rate);
+            await setVideoBitrateSafe(nextRate, 'manual-bandwidth-menu');
         } catch (error) {
             console.error("Failed to update bitrate:", error);
         } finally {
@@ -1009,11 +1320,13 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             try {
                 await millicastPublishUserMedia.webRTCPeer.updateCodec(codec)
                 console.log('codec updated')
+                await reapplyActiveSvcIfNeeded('codec-change', millicastPublishUserMedia, bandwidth);
             }
             catch (e) {
                 onSetSessionDescriptionError(e)
             }
         }
+        updateSvcModeMenuAvailability();
         selectedCodecBtn.disabled = false;
     }
 
@@ -1023,37 +1336,26 @@ document.addEventListener("DOMContentLoaded", async (event) => {
    */
     const onSetVideoFps = async (evt) => {
         try {
-            const fps = parseInt(evt.target.dataset.fps, 10);
-            if (fps < 5) {
+            const nextFps = parseInt(evt.target.dataset.fps, 10);
+            if (nextFps < 5) {
                 console.warn("FPS is too low and may impact stream quality.");
             }
             selectedFpsBtn.disabled = true;
 
-            const videoTrack = millicastPublishUserMedia.mediaManager.mediaStream.getVideoTracks()[0];
-            if (!videoTrack) {
-                console.warn("No video track found to update FPS.");
-                return;
-            }
+            const currentSettings = millicastPublishUserMedia?.mediaManager?.mediaStream?.getVideoTracks?.()[0]?.getSettings?.() || {};
+            console.log("Current video settings:", currentSettings);
 
-            const settings = videoTrack.getSettings();
-            console.log("Current video settings:", settings);
+            await applyVideoProfile({
+                width: currentSettings.width,
+                height: currentSettings.height,
+                aspectRatio: currentSettings.aspectRatio || aspect,
+                frameRate: nextFps
+            }, {
+                replaceTrack: !!millicastPublishUserMedia?.isActive?.(),
+                source: 'manual-fps'
+            });
 
-            const newConstraints = {
-                width: settings.width,
-                height: settings.height,
-                aspectRatio: settings.aspectRatio,
-                frameRate: fps
-            };
-
-            console.log("Applying new FPS constraints:", newConstraints);
-            await videoTrack.applyConstraints(newConstraints);
-
-            await millicastPublishUserMedia.webRTCPeer.replaceTrack(videoTrack);
-
-            // Update the dropdown UI (assuming you're using the button label to reflect it)
-            selectedFpsBtn.innerHTML = `${fps} FPS`;
-
-            const updated = videoTrack.getSettings();
+            const updated = millicastPublishUserMedia?.mediaManager?.mediaStream?.getVideoTracks?.()[0]?.getSettings?.() || {};
             console.log(`✅ Frame rate applied: ${updated.frameRate} FPS`, updated);
         } catch (error) {
             console.error("Failed to update frame rate:", error);
@@ -1107,99 +1409,21 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
     const onSetResolution = async (evt) => {
         try {
-            const resolution = parseInt(evt.target.dataset.resolution, 10);
-            const aspectRatio = 16 / 9; // Default aspect ratio
+            const nextResolution = parseInt(evt.target.dataset.resolution, 10);
+            const nextBitrate = resolutionBitrateMap[String(nextResolution)] || resolutionBitrateMap[nextResolution] || bandwidth;
 
-            console.log(`Attempting to update resolution to: ${resolution}p`);
-
-            // Update the UI button text
-            selectedResolutionBtn.innerHTML = `${resolution}p`;
-
-            // Retrieve the video track
-            const videoTrack = millicastPublishUserMedia.mediaManager.mediaStream.getVideoTracks()[0];
-            if (!videoTrack) {
-                console.warn("No video track found to update resolution.");
-                return;
-            }
-
-            // Apply new constraints
-            const newConstraints = {
-                height: { ideal: resolution, max: 2160 }, // Adjust height constraint and will handle 4k
-                width: { ideal: 1280, max: 3640 },
-                aspectRatio: aspectRatio,
-                frameRate: fps, // Maintain frame rate
-            };
-
-            console.log("Applying resolution constraints:", newConstraints);
-            await videoTrack.applyConstraints(newConstraints);
-
-            console.log("Updated track settings after resolution change:", videoTrack.getSettings());
+            console.log(`Attempting to update resolution to: ${nextResolution}p`);
+            await applyVideoProfile({
+                height: nextResolution,
+                aspectRatio: 16 / 9,
+                frameRate: fps,
+                bitrateKbps: nextBitrate
+            }, {
+                replaceTrack: !!millicastPublishUserMedia?.isActive?.(),
+                source: 'manual-resolution'
+            });
         } catch (error) {
-            if (error.name === "OverconstrainedError") {
-                console.warn("OverconstrainedError detected. Adjusting constraints to fallback resolution.");
-
-                // Fallback to a lower resolution or default settings
-                const fallbackConstraints = {
-                    height: { ideal: resolution, max: 2160 },
-                    //width: {ideal: 1280},
-                    aspectRatio: 16 / 9,
-                };
-
-                try {
-                    const videoTrack = millicastPublishUserMedia.mediaManager.mediaStream.getVideoTracks()[0];
-                    if (videoTrack) {
-                        await videoTrack.applyConstraints(fallbackConstraints);
-                        console.log("Fallback constraints applied successfully:", videoTrack.getSettings());
-                    }
-                } catch (fallbackError) {
-                    console.error("Failed to apply fallback constraints:", fallbackError);
-                }
-            } else {
-                console.error("Failed to update resolution:", error);
-            }
-            //Manually Set the BitRate to the Resolution
-            try {
-                const resolutionKey = event.target.getAttribute('data-resolution'); // e.g., "120", "240", etc.
-                console.log(`Attempting to update resolution to: ${resolutionKey}p`);
-
-                if (!resolutionBitrateMap[resolutionKey]) {
-                    console.warn(`No bitrate defined for the selected resolution: ${resolutionKey}`);
-                    return;
-                }
-
-                const bitrate = resolutionBitrateMap[resolutionKey]; // Retrieve the bitrate
-                resolution = resolutionKey; // Update the resolution variable
-
-                // Retrieve the video track
-                const videoTrack = millicastPublishUserMedia.mediaManager.mediaStream.getVideoTracks()[0];
-                if (!videoTrack) {
-                    console.warn("No video track found to update resolution.");
-                    return;
-                }
-
-                // Apply new resolution constraints
-                const newConstraints = {
-                    height: { ideal: parseInt(resolutionKey, 10) },
-                    aspectRatio: 16 / 9,
-                    frameRate: 30, // Maintain frame rate
-                };
-
-                console.log("Applying resolution constraints:", newConstraints);
-                await videoTrack.applyConstraints(newConstraints);
-
-                // Update the bitrate dynamically
-                if (millicastPublishUserMedia.isActive()) {
-                    await millicastPublishUserMedia.webRTCPeer.updateBitrate(bitrate);
-                    console.log(`Bitrate updated to: ${bitrate} Kbps`);
-                } else {
-                    console.log("Stream not active. Bitrate will apply when broadcast starts.");
-                }
-
-                console.log("Updated track settings after resolution change:", videoTrack.getSettings());
-            } catch (error) {
-                console.error("Failed to update resolution:", error);
-            }
-
+            console.error("Failed to update resolution:", error);
         }
     };
 
@@ -1380,6 +1604,11 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             el.addEventListener("click", onSetResolution);
         });
 
+        const elSvcModeList = document.querySelectorAll("#svcModeMenu > .dropdown-item");
+        elSvcModeList.forEach((el) => {
+            el.addEventListener("click", onSetSvcMode);
+        });
+
         // Hide bandwidth selector if video is disabled
         if (disableVideo === true) {
             selectedBandwidthBtn.classList.add('d-none');
@@ -1424,15 +1653,146 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
 
         console.log("UI initialized, all event listeners are bound.");
+        updateSvcModeMenuAvailability();
 
-        //Stereo support
-        let a = true;
-        if (!disableStereo) {
-            a = {
-                channelCount: { ideal: 2 },
-                echoCancellation: true
+        // Audio support (defaults can be overridden by the Audio Settings UI)
+        window.__audioSettings = window.__audioSettings || {
+            mode: 'voice',
+            bitrate: 128,
+            sampleRate: 48000,
+            channelCount: 2,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        };
+
+        function getAudioSettingsFromUI() {
+            const mode = document.getElementById('audioModeSelect')?.value || window.__audioSettings.mode || 'voice';
+            let channelCount = parseInt(document.getElementById('audioChannelCountSelect')?.value || window.__audioSettings.channelCount || 2, 10);
+            let echoCancellation = !!document.getElementById('audioEchoCancellationToggle')?.checked;
+            let noiseSuppression = !!document.getElementById('audioNoiseSuppressionToggle')?.checked;
+            let autoGainControl = !!document.getElementById('audioAutoGainToggle')?.checked;
+            const sampleRate = parseInt(document.getElementById('audioSampleRateSelect')?.value || window.__audioSettings.sampleRate || 48000, 10);
+            const bitrate = parseInt(document.getElementById('audioBitrateSelect')?.value || window.__audioSettings.bitrate || 128, 10);
+
+            if (mode === 'voice') {
+                channelCount = 1;
+                echoCancellation = true;
+                noiseSuppression = true;
+                autoGainControl = true;
+            } else if (mode === 'music') {
+                channelCount = 2;
+                echoCancellation = false;
+                noiseSuppression = false;
+                autoGainControl = false;
+            } else if (mode === 'stereo') {
+                channelCount = 2;
+            } else if (mode === 'foa') {
+                channelCount = 4;
+                echoCancellation = false;
+                noiseSuppression = false;
+                autoGainControl = false;
+            } else if (mode === 'soa') {
+                channelCount = 9;
+                echoCancellation = false;
+                noiseSuppression = false;
+                autoGainControl = false;
+            } else if (mode === 'toa') {
+                channelCount = 16;
+                echoCancellation = false;
+                noiseSuppression = false;
+                autoGainControl = false;
+            } else if (mode === '5.1') {
+                channelCount = 6;
+                echoCancellation = false;
+                noiseSuppression = false;
+                autoGainControl = false;
+            }
+
+            return {
+                mode,
+                bitrate,
+                sampleRate,
+                channelCount,
+                echoCancellation,
+                noiseSuppression,
+                autoGainControl
+            };
+        }
+
+        function buildAudioConstraintsFromSettings(settings, deviceId = null) {
+            const audio = {
+                echoCancellation: settings.echoCancellation,
+                noiseSuppression: settings.noiseSuppression,
+                autoGainControl: settings.autoGainControl,
+                sampleRate: settings.sampleRate,
+                channelCount: { ideal: settings.channelCount }
+            };
+            if (deviceId) audio.deviceId = { exact: deviceId };
+            return audio;
+        }
+
+        async function applyAudioSenderParams(settings) {
+            try {
+                const sender = millicastPublishUserMedia?.webRTCPeer?.getSenders?.().find(s => s.track?.kind === 'audio');
+                if (!sender || typeof sender.getParameters !== 'function') return;
+                const parameters = sender.getParameters() || {};
+                if (!parameters.encodings || !parameters.encodings.length) parameters.encodings = [{}];
+                parameters.encodings[0].maxBitrate = settings.bitrate * 1000;
+                await sender.setParameters(parameters);
+                console.log('[AUDIO] sender bitrate set to', settings.bitrate, 'kbps');
+            } catch (err) {
+                console.warn('[AUDIO] failed to apply sender params:', err);
             }
         }
+
+        async function applyAudioSettings(live = true) {
+            const settings = getAudioSettingsFromUI();
+            window.__audioSettings = settings;
+
+            const currentTrack = millicastPublishUserMedia?.mediaManager?.mediaStream?.getAudioTracks?.()[0];
+            const currentDeviceId = currentTrack?.getSettings?.().deviceId || null;
+
+            const audioConstraints = buildAudioConstraintsFromSettings(settings, currentDeviceId);
+            millicastPublishUserMedia.mediaManager.constraints = {
+                ...millicastPublishUserMedia.mediaManager.constraints,
+                audio: !disableAudio ? audioConstraints : false
+            };
+
+            if (window.ambisonicSDP?.setOrder) {
+                const ambiMode = ['foa', 'soa', 'toa', '5.1'].includes(settings.mode) ? settings.mode : 'none';
+                window.ambisonicSDP.setOrder(ambiMode);
+            }
+
+            if (!live) return settings;
+
+            try {
+                const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+                const newAudioTrack = audioOnly.getAudioTracks()[0];
+                if (!newAudioTrack) return settings;
+
+                const videoTracks = activeStream ? activeStream.getVideoTracks() : (millicastPublishUserMedia.mediaManager.mediaStream?.getVideoTracks?.() || []);
+                const newStream = new MediaStream([...videoTracks, newAudioTrack]);
+                activeStream = newStream;
+                videoWin.srcObject = newStream;
+                millicastPublishUserMedia.mediaManager.mediaStream = newStream;
+
+                const peer = millicastPublishUserMedia.webRTCPeer;
+                if (millicastPublishUserMedia.isActive() && peer?.getSenders) {
+                    const audioSender = peer.getSenders().find(s => s.track?.kind === 'audio');
+                    if (audioSender) await audioSender.replaceTrack(newAudioTrack);
+                    await applyAudioSenderParams(settings);
+                }
+                console.log('[AUDIO] applied settings:', settings, newAudioTrack.getSettings?.());
+            } catch (err) {
+                console.error('[AUDIO] failed to apply settings:', err);
+            }
+            return settings;
+        }
+
+        const initialAudioSettings = getAudioSettingsFromUI();
+        window.__audioSettings = initialAudioSettings;
+        let a = !disableStereo ? buildAudioConstraintsFromSettings(initialAudioSettings) : true;
         console.log('constraints audio:', a, ' disableAudio:', (!disableAudio ? a : false));
 
         millicastPublishUserMedia.mediaManager.constraints = {
@@ -1446,13 +1806,22 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         };
         try {
             videoWin.srcObject = await millicastPublishUserMedia.getMediaStream()
+            activeStream = videoWin.srcObject;
             const devices = await millicastPublishUserMedia.devices
 
             displayDevices(devices)
+            applyAudioSettings(false);
         }
         catch (err) {
             console.error(err);
         }
+
+        document.getElementById('applyAudioSettingsBtn')?.addEventListener('click', async () => {
+            await applyAudioSettings(true);
+        });
+        document.getElementById('audioModeSelect')?.addEventListener('change', async () => {
+            await applyAudioSettings(true);
+        });
 
         console.log("🛑 Stopping broadcast...");
 
@@ -1684,6 +2053,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             if (millicastPublishUserMedia.isActive() && peer && typeof peer.replaceTrack === 'function') {
                 await peer.replaceTrack(newAudioTrack);
                 console.log('✅ Live audio track replaced');
+                try { await applyAudioSenderParams(getAudioSettingsFromUI()); } catch (e) {}
             } else {
                 console.warn('⚠️ replaceTrack() not available; audio will update on reconnect');
             }
@@ -1736,9 +2106,9 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 }
             });
         }
+
         
-        //Camera contols and list update.
-        // Update camera list
+       // Update Camera list
         while (camsList.firstChild) {
             camsList.removeChild(camsList.firstChild);
         }
@@ -1746,8 +2116,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         const cams = data.videoinput || [];
         cams.forEach(device => {
             const item = document.createElement('button');
-            item.innerHTML = `📷 ${device.label || 'Camera'}`;
-            item.className = 'dropdown-item use-hand';
+            item.innerHTML = device.label || 'Camera';
+            item.classList = 'dropdown-item use-hand';
             item.id = device.deviceId;
             camsList.appendChild(item);
         });
@@ -1755,138 +2125,149 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         // Add both screen share options:
         const screenShareItem = document.createElement('button');
         screenShareItem.innerHTML = '🖥️ Screen Share';
-        screenShareItem.className = 'dropdown-item use-hand';
+        screenShareItem.classList = 'dropdown-item use-hand';
         screenShareItem.id = 'screenShareOnly';
         camsList.appendChild(screenShareItem);
 
         const screenCameraCompositeItem = document.createElement('button');
-        screenCameraCompositeItem.innerHTML = '🖥️ 🎥 Screen + Camera Overlay';
-        screenCameraCompositeItem.className = 'dropdown-item use-hand';
+        screenCameraCompositeItem.innerHTML = '🖥️ Screen + Camera Overlay';
+        screenCameraCompositeItem.classList = 'dropdown-item use-hand';
         screenCameraCompositeItem.id = 'screenCameraComposite';
         camsList.appendChild(screenCameraCompositeItem);
 
-        // NEW: Camera + Screen (camera full, screen PiP)
-        const cameraScreenCompositeItem = document.createElement('button');
-        cameraScreenCompositeItem.innerHTML = '🎥 🖥️ Camera + Screen';
-        cameraScreenCompositeItem.className = 'dropdown-item use-hand';
-        cameraScreenCompositeItem.id = 'cameraScreenComposite';
-        camsList.appendChild(cameraScreenCompositeItem);
+        const dualCameraPipItem = document.createElement('button');
+        dualCameraPipItem.innerHTML = '📷 Dual Camera PiP';
+        dualCameraPipItem.classList = 'dropdown-item use-hand';
+        dualCameraPipItem.id = 'dualCameraPip';
+        camsList.appendChild(dualCameraPipItem);
 
-        // NEW: Dual Camera (primary full, secondary PiP)
-        const dualCamItem = document.createElement('button');
-        dualCamItem.innerHTML = '🎥🎥 Dual Camera';
-        dualCamItem.className = 'dropdown-item use-hand';
-        dualCamItem.id = 'dualCamBtn';
-        camsList.appendChild(dualCamItem);
+        const dualCameraSideBySideItem = document.createElement('button');
+        dualCameraSideBySideItem.innerHTML = '📷 Dual Camera Side by Side';
+        dualCameraSideBySideItem.classList = 'dropdown-item use-hand';
+        dualCameraSideBySideItem.id = 'dualCameraSideBySide';
+        camsList.appendChild(dualCameraSideBySideItem);
 
-        // PiP chooser section (lets you select the small camera for the two new modes)
-        const divider = document.createElement('div');
-        divider.className = 'dropdown-divider';
-        camsList.appendChild(divider);
+        if (cams.length > 1) {
+            const pipSeparator = document.createElement('div');
+            pipSeparator.className = 'dropdown-item';
+            pipSeparator.setAttribute('aria-disabled', 'true');
+            pipSeparator.style.pointerEvents = 'none';
+            pipSeparator.style.opacity = '0.8';
+            pipSeparator.innerHTML = '&mdash; PiP (small camera) &mdash;';
+            camsList.appendChild(pipSeparator);
 
-        const pipHdr = document.createElement('div');
-        pipHdr.className = 'dropdown-item disabled';
-        pipHdr.textContent = '— PiP (small camera) —';
-        camsList.appendChild(pipHdr);
+            const defaultSecondary = currentDualCameraSecondaryDeviceId && currentDualCameraSecondaryDeviceId !== currentCameraDeviceId
+                ? currentDualCameraSecondaryDeviceId
+                : ((cams.find(device => device.deviceId !== currentCameraDeviceId) || cams[1] || cams[0])?.deviceId || null);
+            currentDualCameraSecondaryDeviceId = defaultSecondary;
 
-        cams.forEach(device => {
-            const pipBtn = document.createElement('button');
-            pipBtn.className = 'dropdown-item use-hand pip-choice';
-            pipBtn.setAttribute('data-device-id', device.deviceId);
-            pipBtn.textContent = `📌 ${device.label || 'Camera'}`;
-            camsList.appendChild(pipBtn);
-        });
+            cams.forEach(device => {
+                const pipItem = document.createElement('button');
+                pipItem.innerHTML = `📌 ${device.label || 'Camera'}`;
+                pipItem.className = 'dropdown-item use-hand';
+                pipItem.dataset.role = 'pip-secondary-camera';
+                pipItem.dataset.deviceId = device.deviceId;
+                pipItem.id = `pipSecondary-${device.deviceId}`;
+                if (device.deviceId === currentCameraDeviceId) {
+                    pipItem.classList.add('disabled');
+                    pipItem.setAttribute('aria-disabled', 'true');
+                    pipItem.title = 'Primary camera cannot also be the PiP camera';
+                }
+                camsList.appendChild(pipItem);
+            });
+
+            updateDualCameraSecondaryDropdownUI(currentDualCameraSecondaryDeviceId);
+        }
 
         displayActiveDevice();
     }
 
     /// Add after displayDevices camList
-    // One single click handler for the camera dropdown:
-    // One single click handler for the camera dropdown:
     camsList.addEventListener('click', async (e) => {
         const target = e.target;
         if (!target || !target.classList.contains('dropdown-item')) return;
 
         try {
-            // 0) PiP selection must not fall through to "real camera"
-            if (target.classList.contains('pip-choice')) {
-                const pipId = target.getAttribute('data-device-id') || '';
-                if (!pipId) {
-                    console.warn('PiP choice has no device id');
+            if (target.dataset?.role === 'pip-secondary-camera') {
+                if (target.classList.contains('disabled') || target.getAttribute('aria-disabled') === 'true') {
                     return;
                 }
-                window.pipDeviceId = pipId;
-                // highlight chosen PiP
-                camsList.querySelectorAll('.pip-choice').forEach(b => b.classList.remove('active'));
-                target.classList.add('active');
-                console.log('PiP set to:', pipId);
-                return; // IMPORTANT: stop here; do NOT switch camera
+                currentDualCameraSecondaryDeviceId = target.dataset.deviceId || null;
+                updateDualCameraSecondaryDropdownUI(currentDualCameraSecondaryDeviceId);
+                console.log('Updated dual camera secondary device:', currentDualCameraSecondaryDeviceId);
+
+                if (activeMediaSource === 'dualCameraPip') {
+                    updateDropdownUI('Dual Camera PiP');
+                    await startDualCameraMode('pip');
+                } else if (activeMediaSource === 'dualCameraSideBySide') {
+                    updateDropdownUI('Dual Camera Side by Side');
+                    await startDualCameraMode('sideBySide');
+                }
+                return;
             }
 
-            // Special virtual options
+            // Special virtual device handling
             if (target.id === 'screenShareOnly') {
-                console.log('Switching to screen share (screen only)…');
+                console.log("Switching to screen share (screen only)...");
+                await cleanupDualCameraSession();
                 updateDropdownUI('Screen Share Only');
-                await window.startScreenShare('screenOnly');
+                await startScreenShare('screenOnly');
                 return;
             }
-
             if (target.id === 'screenCameraComposite') {
-                console.log('Switching to screen share + camera overlay…');
+                console.log("Switching to screen share + camera overlay...");
+                await cleanupDualCameraSession();
                 updateDropdownUI('Screen + Camera Overlay');
-                await window.startScreenShare('composite');
+                await startScreenShare('composite');
+                return;
+            }
+            if (target.id === 'dualCameraPip') {
+                console.log("Switching to dual camera PiP...");
+                updateDropdownUI('Dual Camera PiP');
+                await startDualCameraMode('pip');
+                return;
+            }
+            if (target.id === 'dualCameraSideBySide') {
+                console.log("Switching to dual camera side-by-side...");
+                updateDropdownUI('Dual Camera Side by Side');
+                await startDualCameraMode('sideBySide');
                 return;
             }
 
-            if (target.id === 'cameraScreenComposite') {
-                console.log('Camera + Screen (PiP)…');
-                updateDropdownUI('Camera + Screen (PiP)');
-                await window.startCameraPlusScreen();  // uses window.pipDeviceId
-                return;
-            }
-
-            if (target.id === 'dualCamBtn') {
-                console.log('Dual Camera (PiP)…');
-                updateDropdownUI('Dual Camera (PiP)');
-                await window.startDualCamera();        // uses window.pipDeviceId
-                return;
-            }
-
-            // 1) Real camera devices (MUST have a real deviceId in `id`)
-            if (!target.id) {
-                console.warn('Clicked item with no id; ignoring.');
-                return;
-            }
-
+            // Handle real camera devices (everything else)
             console.log(`Switching to camera: ${target.id}`);
+            await cleanupDualCameraSession();
             activeMediaSource = 'camera';
+            currentCameraDeviceId = target.id;
 
-            const selectedCamera = Array.from(camsList.querySelectorAll('button.dropdown-item'))
-                .find(item => item.id === target.id);
+            const selectedCamera = [...camsList.children].find(item => item.id === target.id);
             if (!selectedCamera) {
-                console.warn('Selected camera not found in dropdown list.');
+                console.warn("Selected camera not found in dropdown list.");
                 return;
             }
 
-            if (activeStream) activeStream.getTracks().forEach(t => t.stop());
+            if (activeStream) {
+                activeStream.getTracks().forEach(track => track.stop());
+            }
 
-            // strip leading icon from the label if present
-            const labelText = target.textContent.replace(/^📷\s*/, '');
-            updateDropdownUI(labelText);
+            updateDropdownUI(target.textContent);
 
             const cameraStream = await millicastPublishUserMedia.updateMediaStream('video', target.id);
+            currentCameraDeviceId = target.id;
             activeStream = cameraStream;
             videoWin.srcObject = cameraStream;
 
-            if (millicastPublishUserMedia.isActive && millicastPublishUserMedia.isActive()) {
+            if (millicastPublishUserMedia.isActive()) {
                 const cameraTrack = cameraStream.getVideoTracks()[0];
                 await millicastPublishUserMedia.webRTCPeer.replaceTrack(cameraTrack);
-                console.log('Camera track replaced successfully.');
+                console.log("Camera track replaced successfully.");
             }
 
-            console.log(`Updated local preview and published camera to: ${labelText}`);
+            try { await displayDevices(await millicastPublishUserMedia.devices); } catch (_) {}
+            updateDualCameraSecondaryDropdownUI(currentDualCameraSecondaryDeviceId);
+            console.log(`Updated local preview and published camera to: ${target.textContent}`);
         } catch (error) {
-            console.error('Error switching media source:', error);
+            console.error("Error switching media source:", error);
         }
     });
 
@@ -1989,6 +2370,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
         function commitStream(stream, label) {
             activeMediaSource = 'camera';
+            currentCameraDeviceId = target.deviceId;
             activeStream = stream;
 
             const v = stream.getVideoTracks()[0];
@@ -2087,11 +2469,13 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         // Expect activeMediaSource ∈ {'camera','screen','screenOnly','composite'}.
         const source = (typeof activeMediaSource === 'string') ? activeMediaSource : '';
         const inferredLabel =
-            source === 'composite' ? 'Screen + Camera Overlay' :
-                source === 'screen' ? 'Screen Share' :
-                    source === 'screenOnly' ? 'Screen Share Only' :
-                        source === 'camera' ? 'Camera' :
-                            'Select Camera';
+            source === 'dualCameraPip' ? 'Dual Camera PiP' :
+                source === 'dualCameraSideBySide' ? 'Dual Camera Side by Side' :
+                    source === 'composite' ? 'Screen + Camera Overlay' :
+                        source === 'screen' ? 'Screen Share' :
+                            source === 'screenOnly' ? 'Screen Share Only' :
+                                source === 'camera' ? 'Camera' :
+                                    'Select Camera';
 
         const label = (selectedLabel && String(selectedLabel).trim()) || inferredLabel;
 
@@ -2109,6 +2493,8 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             'Screen Share': 'screenShareOnly',
             'Screen Share Only': 'screenShareOnly',
             'Screen + Camera Overlay': 'screenCameraComposite',
+            'Dual Camera PiP': 'dualCameraPip',
+            'Dual Camera Side by Side': 'dualCameraSideBySide',
             'Camera': null // fall back to text match
         };
 
@@ -2156,7 +2542,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 if (!t) return;
 
                 // Only intercept the two virtual screen-share items; let real cameras bubble to your existing handler.
-                const isVirtual = (t.id === 'screenShareOnly' || t.id === 'screenCameraComposite');
+                const isVirtual = (t.id === 'screenShareOnly' || t.id === 'screenCameraComposite' || t.id === 'dualCameraPip' || t.id === 'dualCameraSideBySide');
                 if (!isVirtual) return; // allow normal camera selection logic to run elsewhere
 
                 // Per-click debounce
@@ -2170,13 +2556,21 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
                 try {
                     if (t.id === 'screenShareOnly') {
+                        await cleanupDualCameraSession();
                         activeMediaSource = 'screenOnly';
                         updateDropdownUI('Screen Share Only');
-                        await window.startScreenShare('screenOnly');
-                    } else {
+                        await startScreenShare('screenOnly');
+                    } else if (t.id === 'screenCameraComposite') {
+                        await cleanupDualCameraSession();
                         activeMediaSource = 'composite';
                         updateDropdownUI('Screen + Camera Overlay');
-                        await window.startScreenShare('composite');
+                        await startScreenShare('composite');
+                    } else if (t.id === 'dualCameraPip') {
+                        updateDropdownUI('Dual Camera PiP');
+                        await startDualCameraMode('pip');
+                    } else {
+                        updateDropdownUI('Dual Camera Side by Side');
+                        await startDualCameraMode('sideBySide');
                     }
                 } catch (err) {
                     if (err?.name === 'NotAllowedError') {
@@ -2735,9 +3129,13 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             updateRecordButtonUI();
             window.broadcastHandler?.({ name: 'publishStart', data });
         }
-        else if (name === 'inactive' || name === 'stopped' || name === 'publishStop') {
+        else if (name === 'inactive') {
+            console.warn('[EVT] inactive received; ignoring as non-fatal publish event.', data || {});
+        }
+        else if (name === 'stopped' || name === 'publishStop') {
             window.isBroadcasting = false;
             isRecording = false;
+            stopQualityRecoveryMonitor();
             syncPublishButtonUI();
             updateRecordButtonUI();
             window.broadcastHandler?.({ name: 'publishStop', data });
@@ -2809,12 +3207,179 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             // small grace so any late 'active' gets ignored
             setTimeout(() => { window.__blockAutoStart = false; }, 1200);
             isStopping = false;
+            stopQualityRecoveryMonitor();
             syncPublishButtonUI();
             updateRecordButtonUI();
         }
     }
 
 
+
+
+    function getPreferredSvcMode(selectedCodec) {
+        const c = String(selectedCodec || '').toLowerCase();
+        if (!codecSupportsSvc(c)) return null;
+
+        const allowedModes = new Set(['L2T1', 'L2T2', 'L2T3', 'L3T1', 'L3T2', 'L3T3']);
+        const requested = String(selectedSvcMode || 'none').toUpperCase();
+        if (allowedModes.has(requested)) return requested;
+
+        if (c === 'vp9') return 'L3T3';
+        if (c === 'av1') return 'L3T3';
+        return null;
+    }
+
+    function codecSupportsSvc(selectedCodec) {
+        const c = String(selectedCodec || '').toLowerCase();
+        return c === 'vp9' || c === 'av1';
+    }
+
+    function buildSvcSendEncodings(selectedCodec, bandwidthKbps) {
+        const mode = getPreferredSvcMode(selectedCodec);
+        if (!mode) return null;
+
+        const maxBitrate = Number.isFinite(Number(bandwidthKbps)) ? Math.max(150000, Number(bandwidthKbps) * 1000) : undefined;
+        const encoding = {
+            scalabilityMode: mode
+        };
+
+        if (maxBitrate) encoding.maxBitrate = maxBitrate;
+        return [encoding];
+    }
+
+    async function applyVideoSvcPreferences(pub, selectedCodec, bandwidthKbps) {
+        if (!codecSupportsSvc(selectedCodec)) return false;
+        if (String(selectedSvcMode || 'none').toLowerCase() === 'none') {
+            console.log(`[SVC] ${String(selectedCodec || '').toUpperCase()} SVC not enabled.`);
+            return false;
+        }
+
+        const sender = pub?.webRTCPeer?.getSenders?.().find(s => s.track?.kind === 'video');
+        if (!sender || typeof sender.getParameters !== 'function' || typeof sender.setParameters !== 'function') {
+            console.warn(`[SVC] No video sender available for ${selectedCodec.toUpperCase()}.`);
+            return false;
+        }
+
+        const mode = getPreferredSvcMode(selectedCodec);
+        const maxBitrate = Number.isFinite(Number(bandwidthKbps)) ? Math.max(150000, Number(bandwidthKbps) * 1000) : undefined;
+        const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= 20; attempt++) {
+            try {
+                const params = sender.getParameters() || {};
+                if (!params.encodings || !params.encodings.length) {
+                    params.encodings = [{}];
+                }
+
+                params.encodings = params.encodings.map((enc = {}) => {
+                    const next = { ...enc, scalabilityMode: mode };
+                    if (maxBitrate) next.maxBitrate = maxBitrate;
+                    return next;
+                });
+
+                await sender.setParameters(params);
+                console.log(`[SVC] Applied ${selectedCodec.toUpperCase()} scalabilityMode=${mode} on attempt ${attempt}.`, params.encodings);
+                return true;
+            } catch (err) {
+                lastError = err;
+                await wait(150);
+            }
+        }
+
+        console.warn(`[SVC] Unable to apply scalabilityMode for ${selectedCodec.toUpperCase()}.`, lastError);
+        return false;
+    }
+
+    async function reapplyActiveSvcIfNeeded(source = 'unknown', targetPub = null, targetBandwidth = bandwidth) {
+        try {
+            const activeCodec = String(codec || '').toLowerCase();
+            if (!codecSupportsSvc(activeCodec)) return false;
+            if (String(selectedSvcMode || 'none').toLowerCase() === 'none') return false;
+
+            const pub = targetPub || getPublisher?.() || millicastPublishUserMedia || window.millicastPublishUserMedia || window.millicastPublish;
+            if (!pub?.isActive?.()) {
+                console.log(`[SVC] Skipping reapply from ${source}; publisher not active.`);
+                return false;
+            }
+
+            const applied = await applyVideoSvcPreferences(pub, activeCodec, targetBandwidth);
+            console.log(`[SVC] Reapply from ${source}:`, applied);
+            return applied;
+        } catch (error) {
+            console.warn(`[SVC] Reapply failed from ${source}:`, error);
+            return false;
+        }
+    }
+
+    async function withSvcTransceiverPatch(selectedCodec, bandwidthKbps, connectFn) {
+        if (!codecSupportsSvc(selectedCodec) || String(selectedSvcMode || 'none').toLowerCase() === 'none') {
+            return await connectFn();
+        }
+
+        const proto = globalThis.RTCPeerConnection && RTCPeerConnection.prototype;
+        if (!proto || typeof proto.addTransceiver !== 'function') {
+            console.warn('[SVC] RTCPeerConnection.addTransceiver unavailable; falling back without transceiver patch.');
+            return await connectFn();
+        }
+
+        const originalAddTransceiver = proto.addTransceiver;
+        const sendEncodings = buildSvcSendEncodings(selectedCodec, bandwidthKbps);
+        const mode = getPreferredSvcMode(selectedCodec);
+
+        proto.addTransceiver = function patchedAddTransceiver(trackOrKind, init = {}) {
+            try {
+                const isVideo = trackOrKind === 'video' || trackOrKind?.kind === 'video';
+                if (isVideo) {
+                    const nextInit = { ...(init || {}) };
+                    if (!nextInit.sendEncodings || !nextInit.sendEncodings.length) {
+                        nextInit.sendEncodings = sendEncodings.map(enc => ({ ...enc }));
+                    } else {
+                        nextInit.sendEncodings = nextInit.sendEncodings.map(enc => ({
+                            ...enc,
+                            scalabilityMode: enc.scalabilityMode || mode,
+                            ...(sendEncodings?.[0]?.maxBitrate ? { maxBitrate: enc.maxBitrate || sendEncodings[0].maxBitrate } : {})
+                        }));
+                    }
+                    console.log(`[SVC] Injecting addTransceiver sendEncodings for ${selectedCodec.toUpperCase()}:`, nextInit.sendEncodings);
+                    return originalAddTransceiver.call(this, trackOrKind, nextInit);
+                }
+            } catch (err) {
+                console.warn('[SVC] addTransceiver patch failed, using original init.', err);
+            }
+            return originalAddTransceiver.call(this, trackOrKind, init);
+        };
+
+        try {
+            return await connectFn();
+        } finally {
+            proto.addTransceiver = originalAddTransceiver;
+        }
+    }
+
+    function getAutomaticStartupProfile(selectedCodec, mediaSource = 'camera') {
+        const c = String(selectedCodec || '').toLowerCase();
+        if (mediaSource === 'screen' || mediaSource === 'screenOnly' || mediaSource === 'composite') {
+            return { height: 1080, frameRate: 30, bitrateKbps: 8000, aspectRatio: 16 / 9 };
+        }
+        if (c === 'av1') {
+            return { height: 1080, frameRate: 30, bitrateKbps: 8000, aspectRatio: 16 / 9 };
+        }
+        if (c === 'vp9') {
+            return { height: 1080, frameRate: 30, bitrateKbps: 7000, aspectRatio: 16 / 9 };
+        }
+        return { height: 720, frameRate: 30, bitrateKbps: 2500, aspectRatio: 16 / 9 };
+    }
+
+    async function applyAutomaticPublishStartupProfile(selectedCodec) {
+        const profile = getAutomaticStartupProfile(selectedCodec, activeMediaSource);
+        console.log('[AUTO] Applying automatic startup profile:', { codec: selectedCodec, activeMediaSource, profile });
+        await applyVideoProfile(profile, {
+            replaceTrack: false,
+            source: 'auto-startup-profile'
+        });
+        return profile;
+    }
 
     /* ---------- START publishing (guards duplicates; adds events & record) ---------- */
     async function BroadcastMillicastStream() {
@@ -2838,8 +3403,9 @@ document.addEventListener("DOMContentLoaded", async (event) => {
         const vTracks = activeStream.getVideoTracks();
         if (!vTracks.length) { console.error('No video tracks in activeStream; cannot publish.'); return; }
 
-        let bandwidth = (resolutionBitrateMap && resolutionBitrateMap[resolution]) || 2500;
-        if (activeMediaSource === 'screen') bandwidth = 6000;
+        const startupProfile = await applyAutomaticPublishStartupProfile(codec);
+        let bandwidth = Number(startupProfile?.bitrateKbps) || (resolutionBitrateMap && resolutionBitrateMap[resolution]) || 2500;
+        if (activeMediaSource === 'screen' || activeMediaSource === 'screenOnly' || activeMediaSource === 'composite') bandwidth = Math.max(bandwidth, 8000);
 
         const pub = getPublisher();
         if (!pub) { console.error('Publisher not ready'); return; }
@@ -2853,7 +3419,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
         isConnecting = true;
         try {
-            await pub.connect({
+            const connectOptions = {
                 codec,
                 simulcast,
                 sourceId: validatedSourceId,
@@ -2861,6 +3427,10 @@ document.addEventListener("DOMContentLoaded", async (event) => {
                 mediaStream: activeStream,
                 record: shouldRequestRecord,
                 events: ['active', 'inactive', 'viewercount', 'stopped']
+            };
+
+            await withSvcTransceiverPatch(codec, bandwidth, async () => {
+                await pub.connect(connectOptions);
             });
 
             console.log(`🚀 Broadcast started: ${streamName}`);
@@ -2876,10 +3446,30 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             syncPublishButtonUI();
             updateRecordButtonUI();
 
-            await pub.webRTCPeer.replaceTrack(vTracks[0]);
+            const liveTrack = millicastPublishUserMedia?.mediaManager?.mediaStream?.getVideoTracks?.()[0] || vTracks[0];
+            await pub.webRTCPeer.replaceTrack(liveTrack);
             console.log('✅ Video track replacement done.');
+            await reapplyActiveSvcIfNeeded('post-connect-replaceTrack', pub, bandwidth);
+
+            await applyVideoProfile({
+                height: startupProfile?.height || resolution,
+                frameRate: startupProfile?.frameRate || fps,
+                aspectRatio: startupProfile?.aspectRatio || aspect,
+                bitrateKbps: bandwidth
+            }, {
+                replaceTrack: true,
+                source: 'post-connect-encoder-refresh'
+            });
+
+            if (codecSupportsSvc(codec)) {
+                const svcApplied = await applyVideoSvcPreferences(pub, codec, bandwidth);
+                console.log(`[SVC] Post-connect ${codec.toUpperCase()} apply result:`, svcApplied);
+            }
+
+            startQualityRecoveryMonitor();
         } catch (err) {
             console.error('🛑 Broadcast Stopped:', err);
+            stopQualityRecoveryMonitor();
             window.isBroadcasting = false;
             isRecording = false;
             syncPublishButtonUI();
