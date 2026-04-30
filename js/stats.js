@@ -30,10 +30,10 @@
         if (!el) {
             el = document.createElement('div');
             el.id = 'statsOverlay';
-            el.style.cssText = 'position:absolute;top:52px;left:20px;width:220px;background:transparent;' +
-                'color:#0f0;font-family:Courier New,monospace;font-size:11px;padding:4px 8px;' +
-                'border-radius:4px;z-index:200;pointer-events:none;line-height:1.5;' +
-                'text-shadow:0 0 4px rgba(0,0,0,0.9),0 0 8px rgba(0,0,0,0.7);display:none;';
+            el.style.cssText = 'position:absolute;top:58px;right:20px;left:auto;width:250px;background:transparent !important;' +
+                'border:none !important;box-shadow:none !important;color:#00ff00 !important;font-family:Courier New,monospace;font-size:11px;padding:8px 10px;' +
+                'border-radius:6px;z-index:4002;pointer-events:none;line-height:1.45;text-align:left;' +
+                'text-shadow:0 0 4px rgba(0,0,0,0.95),0 0 8px rgba(0,0,0,0.8);display:none;';
             var airView = document.getElementById('airIndicatorView');
             if (airView && airView.parentNode) {
                 airView.parentNode.insertBefore(el, airView.nextSibling);
@@ -45,10 +45,13 @@
                 var style = document.createElement('style');
                 style.id = 'statsOverlayCSS';
                 style.textContent =
-                    '#statsOverlay .stats-row{display:flex;justify-content:space-between;padding:1px 0}' +
-                    '#statsOverlay .stats-label{color:#ccc}' +
-                    '#statsOverlay .stats-value.stats-ok{color:#00ff00;font-weight:bold}' +
-                    '#statsOverlay .stats-value.stats-bad{color:#ff2222;font-weight:bold}';
+                    '#statsOverlay{background:transparent !important;border:none !important;box-shadow:none !important;color:#00ff00 !important}' +
+                    '#statsOverlay .stats-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:1px 0}' +
+                    '#statsOverlay .stats-label{color:#7dff7d !important}' +
+                    '#statsOverlay .stats-value{color:#00ff00 !important;font-weight:bold}' +
+                    '#statsOverlay .stats-value.stats-ok{color:#00ff00 !important;font-weight:bold}' +
+                    '#statsOverlay .stats-value.stats-warn{color:#ffd34d !important;font-weight:bold}' +
+                    '#statsOverlay .stats-value.stats-bad{color:#ff3b3b !important;font-weight:bold}';
                 document.head.appendChild(style);
             }
             console.log('[Stats] Created statsOverlay div dynamically');
@@ -56,27 +59,33 @@
         return el;
     }
 
-    function renderOverlay(videoBitrate, audioBitrate, videoWidth, videoHeight, videoFps, availBw, rtt, jitter, packetsLost) {
+    function renderOverlay(videoBitrate, audioBitrate, videoWidth, videoHeight, videoFps, availBw, rtt, jitter, packetsLost, cpuHint, cpuClass) {
         var overlay = getOverlay();
         if (!overlay) return;
 
         // Ensure visible
         overlay.style.display = 'block';
 
+        var cpuState = cpuHint || 'OK';
+        var cpuStateClass = cpuClass || 'stats-ok';
+        var cpuColor = cpuStateClass === 'stats-bad' ? '#ff3b3b' : (cpuStateClass === 'stats-warn' ? '#ffd34d' : '#00ff00');
+
         overlay.innerHTML =
-            '<div class="stats-row"><span class="stats-label">Video:</span> <span class="stats-value ' + (videoBitrate < 100 ? 'stats-bad' : 'stats-ok') + '">' + videoBitrate + ' kbps</span></div>' +
-            '<div class="stats-row"><span class="stats-label">Audio:</span> <span class="stats-value stats-ok">' + audioBitrate + ' kbps</span></div>' +
-            '<div class="stats-row"><span class="stats-label">Res:</span> <span class="stats-value stats-ok">' + videoWidth + 'x' + videoHeight + ' @' + videoFps + 'fps</span></div>' +
-            '<div class="stats-row"><span class="stats-label">Avail BW:</span> <span class="stats-value ' + (availBw > 0 && availBw < 1000 ? 'stats-bad' : 'stats-ok') + '">' + availBw + ' kbps</span></div>' +
-            '<div class="stats-row"><span class="stats-label">RTT:</span> <span class="stats-value ' + (rtt > 200 ? 'stats-bad' : 'stats-ok') + '">' + rtt + ' ms</span></div>' +
-            '<div class="stats-row"><span class="stats-label">Jitter:</span> <span class="stats-value ' + (jitter > 30 ? 'stats-bad' : 'stats-ok') + '">' + jitter + ' ms</span></div>' +
-            '<div class="stats-row"><span class="stats-label">Pkt Loss:</span> <span class="stats-value ' + (packetsLost > 0 ? 'stats-bad' : 'stats-ok') + '">' + packetsLost + '</span></div>';
+            '<div class="stats-row"><span class="stats-label" style="color:#7dff7d !important;">Video:</span> <span class="stats-value ' + (videoBitrate < 100 ? 'stats-bad' : 'stats-ok') + '" style="color:' + (videoBitrate < 100 ? '#ff3b3b' : '#00ff00') + ' !important;">' + videoBitrate + ' kbps</span></div>' +
+            '<div class="stats-row"><span class="stats-label" style="color:#7dff7d !important;">Audio:</span> <span class="stats-value stats-ok" style="color:#00ff00 !important;">' + audioBitrate + ' kbps</span></div>' +
+            '<div class="stats-row"><span class="stats-label" style="color:#7dff7d !important;">Res:</span> <span class="stats-value stats-ok" style="color:#00ff00 !important;">' + videoWidth + 'x' + videoHeight + ' @' + videoFps + 'fps</span></div>' +
+            '<div class="stats-row"><span class="stats-label" style="color:#7dff7d !important;">Avail BW:</span> <span class="stats-value ' + (availBw > 0 && availBw < 1000 ? 'stats-bad' : 'stats-ok') + '" style="color:' + ((availBw > 0 && availBw < 1000) ? '#ff3b3b' : '#00ff00') + ' !important;">' + availBw + ' kbps</span></div>' +
+            '<div class="stats-row"><span class="stats-label" style="color:#7dff7d !important;">RTT:</span> <span class="stats-value ' + (rtt > 200 ? 'stats-bad' : 'stats-ok') + '" style="color:' + (rtt > 200 ? '#ff3b3b' : '#00ff00') + ' !important;">' + rtt + ' ms</span></div>' +
+            '<div class="stats-row"><span class="stats-label" style="color:#7dff7d !important;">Jitter:</span> <span class="stats-value ' + (jitter > 30 ? 'stats-bad' : 'stats-ok') + '" style="color:' + (jitter > 30 ? '#ff3b3b' : '#00ff00') + ' !important;">' + jitter + ' ms</span></div>' +
+            '<div class="stats-row"><span class="stats-label" style="color:#7dff7d !important;">Pkt Loss:</span> <span class="stats-value ' + (packetsLost > 0 ? 'stats-bad' : 'stats-ok') + '" style="color:' + (packetsLost > 0 ? '#ff3b3b' : '#00ff00') + ' !important;">' + packetsLost + '</span></div>' +
+            '<div class="stats-row"><span class="stats-label" style="color:#7dff7d !important;">CPU Hint:</span> <span class="stats-value ' + cpuStateClass + '" style="color:' + cpuColor + ' !important;">' + cpuState + '</span></div>';
     }
 
     function renderFromSDKStats(stats) {
         var videoBitrate = 0, audioBitrate = 0;
         var videoWidth = 0, videoHeight = 0, videoFps = 0;
         var rtt = 0, jitter = 0, packetsLost = 0, availBw = 0;
+        var cpuHint = 'OK', cpuClass = 'stats-ok';
 
         try {
             // Actual SDK format (confirmed from live logs):
@@ -99,8 +108,17 @@
                 videoWidth = v.frameWidth || 0;
                 videoHeight = v.frameHeight || 0;
                 videoFps = v.framesPerSecond || 0;
-                if (v.qualityLimitationReason && v.qualityLimitationReason !== 'none') {
-                    // Could display this info too
+
+                var qlr = String(v.qualityLimitationReason || 'none').toLowerCase();
+                if (qlr === 'cpu') {
+                    cpuHint = 'CPU LIMITED';
+                    cpuClass = 'stats-bad';
+                } else if (qlr === 'bandwidth') {
+                    cpuHint = 'BANDWIDTH';
+                    cpuClass = 'stats-warn';
+                } else if (qlr !== 'none' && qlr !== 'unknown') {
+                    cpuHint = qlr.toUpperCase();
+                    cpuClass = 'stats-warn';
                 }
             }
 
@@ -137,13 +155,14 @@
             console.warn('[Stats] Error parsing SDK stats:', e.message);
         }
 
-        renderOverlay(videoBitrate, audioBitrate, videoWidth, videoHeight, videoFps, availBw, rtt, jitter, packetsLost);
+        renderOverlay(videoBitrate, audioBitrate, videoWidth, videoHeight, videoFps, availBw, rtt, jitter, packetsLost, cpuHint, cpuClass);
     }
 
     function renderFromRawStats(report) {
         var videoBitrate = 0, audioBitrate = 0;
         var videoWidth = 0, videoHeight = 0, videoFps = 0;
         var rtt = 0, jitter = 0, packetsLost = 0, availBw = 0;
+        var cpuHint = 'OK', cpuClass = 'stats-ok';
         var nowBytesSentVideo = 0, nowBytesSentAudio = 0, nowTimestamp = 0;
 
         report.forEach(function (stat) {
@@ -153,6 +172,18 @@
                 videoWidth = stat.frameWidth || 0;
                 videoHeight = stat.frameHeight || 0;
                 videoFps = stat.framesPerSecond || 0;
+
+                var qlr = String(stat.qualityLimitationReason || 'none').toLowerCase();
+                if (qlr === 'cpu') {
+                    cpuHint = 'CPU LIMITED';
+                    cpuClass = 'stats-bad';
+                } else if (qlr === 'bandwidth') {
+                    cpuHint = 'BANDWIDTH';
+                    cpuClass = 'stats-warn';
+                } else if (qlr !== 'none' && qlr !== 'unknown') {
+                    cpuHint = qlr.toUpperCase();
+                    cpuClass = 'stats-warn';
+                }
             }
             if (stat.type === 'outbound-rtp' && stat.kind === 'audio') {
                 nowBytesSentAudio = stat.bytesSent || 0;
@@ -180,7 +211,7 @@
         prevBytesSentAudio = nowBytesSentAudio;
         prevTimestamp = nowTimestamp;
 
-        renderOverlay(videoBitrate, audioBitrate, videoWidth, videoHeight, videoFps, availBw, rtt, jitter, packetsLost);
+        renderOverlay(videoBitrate, audioBitrate, videoWidth, videoHeight, videoFps, availBw, rtt, jitter, packetsLost, cpuHint, cpuClass);
     }
 
     var loggedSDKOnce = false;
