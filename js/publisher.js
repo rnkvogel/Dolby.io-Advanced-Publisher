@@ -1429,7 +1429,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
 
     // Ensure the checkbox is properly referenced and initialized
     // Ensure then it can only be applied to VP8/h264 with a minimum 5000 Kbps.
-    // Only worKing on h264 and vp8
+    // Only for h264 and vp8>>SVC added for VP9 and AV1
     const simulcastCheckbox = document.getElementById('simulcastCheckbox');
 
     if (!simulcastCheckbox) {
@@ -1547,7 +1547,7 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             console.error("Failed to apply constraints:", error);
         }
     };
-    //See AUDIO track information DEBUG
+    //See AUDIO track information DEBUG Not all can be used!!! Look at Surround sound build for more features.
     function logAudioTrackInfo() {
         if (!millicastPublishUserMedia || !millicastPublishUserMedia.mediaManager.mediaStream) {
             console.warn("No active media stream found.");
@@ -3072,7 +3072,6 @@ document.addEventListener("DOMContentLoaded", async (event) => {
             if (typeof updateRecordButtonUI === 'function') updateRecordButtonUI();
         }
     }
-
 
 
     onReady(preflightRecordingCapability);
