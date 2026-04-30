@@ -21,6 +21,8 @@ Updated to show if recording is enabled on the start publishing button.
 4. Only codec will not be able to be updated when live. 
 
 # Features
+# VP9/AV1 SVC options
+This will provide adaptive layers for viewers on poor networks using updated codecs.
 
 # Screen Share with Camera or Presenter mode or just Screen Share
 
@@ -61,6 +63,11 @@ Helps publishers identify issues with the publishing stream such as packet loss.
 Publisher can make real time adjustments to bitrate, fps or resolution.
 
 <img width="278" height="182" alt="Screenshot 2026-03-13 at 2 35 39 PM" src="https://github.com/user-attachments/assets/7502e676-b84c-4485-83ca-0093181bd949" />
+
+# Stream handling.
+The 4/30/2026 updates inlcuded quality handling. If you streams bit rate is falling media tracks will be update or resoltuion will be lowered due to network issues.
+
+
 
 
 
