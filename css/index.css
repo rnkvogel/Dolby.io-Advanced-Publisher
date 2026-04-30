@@ -515,9 +515,7 @@ video{
     z-index: 10000;
     pointer-events: auto;
 }
-.dropdown {
-    //display: none;
-}
+/* .dropdown { display: none; } */
 /*Edit Screen Share Notification*/
 .page-confirm-info-bar {
     height: 25px;
@@ -664,7 +662,7 @@ canvas#availBitrateOverlay {
   }
 }
 
-/* â”€â”€ Air indicator and stats overlay â”€â”€ */
+/* ── Air indicator and stats overlay ── */
 #airIndicatorView {
   position: absolute;
   top: 0;
@@ -834,4 +832,329 @@ canvas#availBitrateOverlay,
 
 #liveBadge .btn-light {
     color: black !important;
+}
+
+/* --- Media settings glass panel (desktop + macOS WebKit safe) --- */
+#mediaSettingsGlass {
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(20, 24, 31, 0.56);
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: 0 14px 30px rgba(0,0,0,0.28);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+#mediaSettingsGlass,
+#mediaSettingsGlass * {
+  box-sizing: border-box;
+  -webkit-box-sizing: border-box;
+}
+
+.media-header {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 10px;
+}
+
+.settings-section-title {
+  color: rgba(255,255,255,0.85);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 10px 0 6px;
+}
+
+.media-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.12);
+  margin: 10px 0 8px;
+}
+
+#mediaSettingsGlass .setting-row {
+  position: relative;
+  display: block;
+  width: 170px;
+  min-width: 170px;
+  max-width: 170px;
+  margin-bottom: 8px;
+}
+
+#mediaSettingsGlass .panel-dropdown,
+#mediaSettingsGlass .dropdown-menu {
+  width: 100%;
+  max-width: 100%;
+}
+
+#mediaSettingsGlass .btn,
+#mediaSettingsGlass .form-control,
+#mediaSettingsGlass select,
+#mediaSettingsGlass input[type="text"] {
+  width: 100% !important;
+  min-width: 0;
+  max-width: 100% !important;
+  min-height: 34px;
+  padding: 4px 8px;
+  font-size: 13px;
+  box-sizing: border-box;
+  -webkit-box-sizing: border-box;
+}
+
+#mediaSettingsGlass .btn.dropdown-toggle {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-box-pack: justify;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+}
+
+#mediaSettingsGlass select,
+#mediaSettingsGlass input[type="text"],
+#mediaSettingsGlass .form-control {
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 6px;
+}
+
+#mediaSettingsGlass .dropdown-menu {
+  min-width: 100%;
+  width: 100% !important;
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 20090 !important;
+}
+
+#mediaSettingsGlass .simulcast-row,
+#mediaSettingsGlass .form-check {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+}
+
+#mediaSettingsGlass .simulcast-row {
+  padding: 2px 2px 0 4px;
+}
+
+#mediaSettingsGlass .form-check-input {
+  position: static;
+  margin: 0;
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+}
+
+#mediaSettingsGlass .form-check-label {
+  min-width: 0;
+  margin: 0;
+}
+
+#audioControlsPanel.audio-controls-inline {
+  background: transparent !important;
+}
+
+#cogButton {
+  z-index: 20050 !important;
+}
+
+/* keep bottom controls visible and aligned */
+#vidCtrlView {
+  z-index: 18;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 10px;
+}
+
+@media (max-width: 900px) {
+  #mediaSettingsGlass {
+    right: 12px !important;
+  }
+}
+
+
+
+/* --- overflow + dropdown stacking fixes --- */
+#mediaSettingsGlass {
+  overflow: visible !important;
+}
+
+#mediaSettingsGlass .setting-row {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+}
+
+#mediaSettingsGlass .panel-dropdown {
+  position: relative;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  z-index: 1;
+}
+
+#mediaSettingsGlass .panel-dropdown.show,
+#mediaSettingsGlass .panel-dropdown:focus-within {
+  z-index: 20120;
+}
+
+#mediaSettingsGlass .dropdown-menu {
+  position: absolute !important;
+  top: calc(100% + 2px) !important;
+  left: 0 !important;
+  right: auto !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  z-index: 20130 !important;
+}
+
+#mediaSettingsGlass .btn,
+#mediaSettingsGlass .form-control,
+#mediaSettingsGlass select,
+#mediaSettingsGlass input[type="text"],
+#mediaSettingsGlass #audioControlsPanel {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+#mediaSettingsGlass .form-check {
+  width: 100%;
+}
+
+#mediaSettingsGlass .form-check-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+
+/* --- audio controls layout fix --- */
+#mediaSettingsGlass .sourceid-row {
+  margin-bottom: 10px;
+}
+
+#mediaSettingsGlass .simulcast-row {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 10px;
+}
+
+#mediaSettingsGlass #audioControlsPanel.audio-controls-inline {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  margin-top: 8px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  z-index: 2 !important;
+  pointer-events: auto !important;
+}
+
+#mediaSettingsGlass #audioControlsPanel select,
+#mediaSettingsGlass #audioControlsPanel button,
+#mediaSettingsGlass #audioControlsPanel input {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto !important;
+}
+
+#mediaSettingsGlass #audioControlsPanel .audio-check {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 4px 0;
+  color: #fff;
+  position: relative;
+  z-index: 2;
+}
+
+#mediaSettingsGlass #audioControlsPanel .audio-check .form-check-input {
+  position: static !important;
+  margin: 0 !important;
+}
+
+#mediaSettingsGlass #audioControlsPanel .audio-check .form-check-label {
+  margin: 0 !important;
+  color: rgba(255,255,255,0.92) !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+}
+
+#mediaSettingsGlass #audioControlsPanel {
+  z-index: 2;
+}
+
+#mediaSettingsGlass .dropdown-menu {
+  z-index: 20130 !important;
+}
+
+
+/* --- sourceId + simulcast must stay above and clickable --- */
+#mediaSettingsGlass .sourceid-row,
+#mediaSettingsGlass .simulcast-row {
+  position: relative !important;
+  z-index: 30 !important;
+  pointer-events: auto !important;
+}
+
+#mediaSettingsGlass .sourceid-row input,
+#mediaSettingsGlass .simulcast-row input,
+#mediaSettingsGlass .simulcast-row label {
+  position: relative !important;
+  z-index: 31 !important;
+  pointer-events: auto !important;
+}
+
+#mediaSettingsGlass #audioControlsPanel.audio-controls-inline {
+  position: relative !important;
+  z-index: 5 !important;
+  margin-top: 12px !important;
+}
+
+#mediaSettingsGlass #audioControlsPanel.audio-controls-inline select,
+#mediaSettingsGlass #audioControlsPanel.audio-controls-inline button,
+#mediaSettingsGlass #audioControlsPanel.audio-controls-inline input,
+#mediaSettingsGlass #audioControlsPanel.audio-controls-inline .audio-check {
+  z-index: 5 !important;
+}
+
+#mediaSettingsGlass .sourceid-row {
+  margin-bottom: 12px !important;
+}
+
+#mediaSettingsGlass .simulcast-row {
+  margin-bottom: 12px !important;
+}
+
+#mediaSettingsGlass .simulcast-row .form-check-label {
+  white-space: normal !important;
 }
